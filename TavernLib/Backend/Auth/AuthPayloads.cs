@@ -25,12 +25,6 @@ internal static class AuthPayloads
     }
 
 
-    public struct ModsListRequest
-    {
-        [JsonProperty(PropertyName = "mods_list")] private bool ModsList { get; set; }
-    }
-
-
     /// <summary>Sent length-prefixed, not as a plain single-recv reply - see
     /// AuthManager.WriteFramedResponse. Everything else on this port is small
     /// enough for the existing single recv/send; this is the one payload that

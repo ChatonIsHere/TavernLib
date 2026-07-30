@@ -110,7 +110,12 @@ public class Tavern : MelonPlugin
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
 
-            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead);
+            // LastRead is null whenever a config file exists but deserializes to
+            // null - an empty or truncated file, which is exactly what a first
+            // run can leave behind. Defaulting keeps that to "nothing desired /
+            // default repo only" instead of an NRE that skips reconcile whole.
+            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory,
+                modsList.LastRead ?? new ModsList(), trustedRepos.LastRead ?? new TrustedRepos());
         }
         catch (Exception e)
         {

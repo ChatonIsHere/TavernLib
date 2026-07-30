@@ -22,10 +22,9 @@ public static class ModHandshake
         [JsonProperty("client_side")] public bool ClientSide { get; set; }
         [JsonProperty("server_side")] public bool ServerSide { get; set; }
 
-        /// <summary>Hint only (principle 14) - which repo this mod actually
-        /// came from, so a client that can't resolve it from any repo it has
-        /// added knows what to suggest adding. Never resolved into a pull on
-        /// its own.</summary>
+        /// <summary>Hint only: which repo this mod actually came from, so a
+        /// client that can't resolve it from any repo it has added knows what to
+        /// suggest adding. Never resolved into a pull on its own.</summary>
         [JsonProperty("source_repo")] public string SourceRepo { get; set; }
     }
 

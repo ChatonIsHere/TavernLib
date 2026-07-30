@@ -13,8 +13,14 @@ namespace TavernLib.ModulePorts;
 /// by hand) but never deleted, plus the only way to register a new pullable
 /// repo - `addrepo`, gated by the same live fetch-and-validate check
 /// modmanager.py's add_repo uses.
+///
+/// The module is deliberately NOT called "mods": the game's own console
+/// already owns that name (`mods add`, `mods refresh`, `mods remove`, ... -
+/// its native content/asset-mod schema, unrelated to community .dll mods).
+/// Registering a second module under the same name would shadow or clash with
+/// it. These commands are all `modmanager <command>`.
 /// </summary>
-[Module("mods", "Community mod management console commands")]
+[Module("modmanager", "Community mod management console commands")]
 public static class ModsCommandModule
 {
     private static TrustedReposConfig LoadTrustedRepos()
@@ -32,10 +38,18 @@ public static class ModsCommandModule
         var installed = ModInstaller.ListInstalledModsWithState(gameDir);
         var disabledIds = installed.Where(m => !m.Enabled).Select(m => m.Record.Id).ToList();
 
+        // The reference-count set has to SHRINK as mods go, not stay fixed at
+        // the pre-cleanup snapshot: with two disabled mods pinning the same
+        // library, a fixed snapshot has each one still seeing the other as
+        // needing it, so the library survives both and is never collected.
+        var remaining = installed.Select(m => m.Record).ToList();
         var removedCount = 0;
         foreach (var id in disabledIds)
-            if (ModInstaller.UninstallMod(gameDir, id, installed.Select(m => m.Record)))
+        {
+            remaining.RemoveAll(r => r.Id == id);
+            if (ModInstaller.UninstallMod(gameDir, id, remaining))
                 removedCount++;
+        }
 
         return disabledIds.Count == 0
             ? "No disabled mods to clean up."
