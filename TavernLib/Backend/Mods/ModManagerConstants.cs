@@ -15,11 +15,21 @@ public static class ModManagerConstants
     /// into a URL except by looking an already-registered repo up by this same
     /// key in TrustedRepos - it can't be used to synthesize or guess a
     /// pullable URL.
+    ///
+    /// Accepts either form it might be handed: a full base URL, or a string
+    /// that is ALREADY a shorthand (`removerepo` and the TrustedRepos lookups
+    /// take either). A relative string like "Author/Repo" is not a valid
+    /// absolute Uri, so this degrades to treating the input as the path rather
+    /// than throwing UriFormatException - matching modmanager.py's
+    /// _repo_shorthand, which gets that behaviour free from urlparse.
     /// </summary>
     public static string RepoShorthand(string url)
     {
-        var path = new Uri(url.TrimEnd('/')).AbsolutePath.Trim('/').Split('/');
-        return path.Length >= 2 ? $"{path[0]}/{path[1]}" : url.TrimEnd('/');
+        var trimmed = (url ?? "").TrimEnd('/');
+        if (trimmed.Length == 0) return trimmed;
+        var path = Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ? uri.AbsolutePath : trimmed;
+        var parts = path.Trim('/').Split('/');
+        return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}" : trimmed;
     }
 
     public const int SupportedManifestMajor = 1;

@@ -86,7 +86,13 @@ public static class ModInstaller
         var destDir = Path.GetDirectoryName(destPath);
         VerifiedDownload(url, sha256, destDir, deadlineUtc, tmp =>
         {
-            File.Copy(tmp, destPath, overwrite: true);
+            // Move, not copy: the temp already sits in destPath's own directory
+            // (VerifiedDownload guarantees that), so this is a same-volume
+            // rename and therefore atomic. A copy that's interrupted partway
+            // leaves a truncated file at destPath that the sidecar written
+            // afterwards would claim is hash-verified.
+            if (File.Exists(destPath)) File.Delete(destPath);
+            File.Move(tmp, destPath);
             return true;
         });
     }
@@ -326,22 +332,33 @@ public static class ModInstaller
 
     /// <summary>Every mod currently on disk (enabled or disabled), with each
     /// one's current enabled/disabled state - needed to decide what reconcile
-    /// still has to enable/disable rather than just what's on disk.</summary>
+    /// still has to enable/disable rather than just what's on disk.
+    ///
+    /// Matches modmanager.py's list_installed_mods exactly, and both rules
+    /// matter. Dot/tilde-prefixed folders are skipped: they're our own staging
+    /// dirs (Mods/.&lt;id&gt;.installing), MelonLoader ignores them, and a crash
+    /// mid-install can leave one behind holding a complete record - which would
+    /// otherwise report a mod as installed that isn't loaded. And the result is
+    /// keyed by record id, not by folder, so two folders carrying the same id
+    /// (a leftover staging dir, or an operator's hand-made backup copy) collapse
+    /// to one entry instead of producing a duplicate that makes callers'
+    /// ToDictionary throw.</summary>
     public static List<InstalledModInfo> ListInstalledModsWithState(string gameDir)
     {
         var modsDir = ModPaths.ModsBase(gameDir);
         if (!Directory.Exists(modsDir)) return new List<InstalledModInfo>();
 
-        var result = new List<InstalledModInfo>();
+        var byId = new Dictionary<string, InstalledModInfo>();
         foreach (var dir in Directory.GetDirectories(modsDir))
         {
             var id = Path.GetFileName(dir);
+            if (id.StartsWith(".") || id.StartsWith("~")) continue;
             var rec = ModRecord.Read(gameDir, id);
             if (rec == null) continue;
             var enabled = File.Exists(ModPaths.ModRecordPath(gameDir, id));
-            result.Add(new InstalledModInfo { Record = rec, Enabled = enabled });
+            byId[rec.Id] = new InstalledModInfo { Record = rec, Enabled = enabled };
         }
-        return result;
+        return byId.Values.ToList();
     }
 }
 
