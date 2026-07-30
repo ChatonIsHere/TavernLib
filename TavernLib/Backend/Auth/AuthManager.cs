@@ -6,9 +6,11 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using MelonLoader.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TavernLib.Backend.Api;
+using TavernLib.Backend.Mods;
 using TavernLib.Backend.Server.Configs;
 
 namespace TavernLib.Backend.Auth;
@@ -94,6 +96,7 @@ internal class AuthManager
 
             if (jsonPayload.ContainsKey("ping")) await WritePongResponse(stream);
             else if (jsonPayload.ContainsKey("register_whitelist_application")) await ManageWhitelistApplicationRequest(stream, jsonPayload, client);
+            else if (jsonPayload.ContainsKey("mods_list")) await WriteModsListResponse(stream);
             else if (jsonPayload.ContainsKey("username")) await ManageAuthRequest(stream, jsonPayload, client);
             else
             {
@@ -114,13 +117,27 @@ internal class AuthManager
 
     private async Task WritePongResponse(Stream stream)
     {
+        var (modsHash, modsCount, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+
         var response = new AuthPayloads.PingResponse(
             _manager.ServerConfig.LastRead.Name,
             !string.IsNullOrWhiteSpace(_manager.ServerConfig.LastRead.PasswordHash),
             _manager.UserConfig.LastRead.Whitelist.Usernames.Count > 0 || _manager.UserConfig.LastRead.Whitelist.Ips.Count > 0,
-            1757); // TODO
+            1757, // TODO
+            modsHash, modsCount);
 
         await WriteResponse(stream, response);
+    }
+
+    /// <summary>Sent only on request - a client's mods_hash cache miss, or
+    /// right before a join - and length-prefixed rather than a plain
+    /// single-recv reply, since a large installed-mods list can genuinely
+    /// outgrow one recv's buffer (see AuthPayloads.ModsListResponse).</summary>
+    private async Task WriteModsListResponse(Stream stream)
+    {
+        var (_, _, mods) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        var response = new AuthPayloads.ModsListResponse(mods);
+        await WriteFramedResponse(stream, response);
     }
 
 
@@ -310,6 +327,33 @@ internal class AuthManager
         catch (Exception e)
         {
             TavernLogger.Error($"Error when sending auth OK {e}");
+            throw;
+        }
+    }
+
+    /// <summary>Length-prefixed write: a 4-byte big-endian byte count, then the
+    /// JSON body - so the client can read the exact number of bytes rather than
+    /// relying on a single recv, which can return a partial message no matter
+    /// the buffer size. Only used for a response that can genuinely outgrow a
+    /// single recv (the full mods list); everything else on this port stays
+    /// small enough for the plain WriteResponse above.</summary>
+    private async Task WriteFramedResponse(Stream stream, object response)
+    {
+        try
+        {
+            var serializedResponse = JsonConvert.SerializeObject(response);
+            var body = Encoding.UTF8.GetBytes(serializedResponse);
+            var header = BitConverter.GetBytes(body.Length);
+            if (BitConverter.IsLittleEndian) Array.Reverse(header);
+
+            TavernLogger.Msg($"Writing framed response to joining client: {serializedResponse}");
+
+            await stream.WriteAsync(header, 0, header.Length);
+            await stream.WriteAsync(body, 0, body.Length);
+        }
+        catch (Exception e)
+        {
+            TavernLogger.Error($"Error when sending framed response {e}");
             throw;
         }
     }
