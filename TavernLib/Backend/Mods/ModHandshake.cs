@@ -22,6 +22,12 @@ public static class ModHandshake
         [JsonProperty("client_side")] public bool ClientSide { get; set; }
         [JsonProperty("server_side")] public bool ServerSide { get; set; }
 
+        /// <summary>Whether a joining client must match this exactly, or is only
+        /// recommended to (see <see cref="ModParityField"/>). Sent so the client
+        /// can tell what it has to have from what it may decline, without
+        /// resolving anything itself.</summary>
+        [JsonProperty("parity_required")] public bool ParityRequired { get; set; }
+
         /// <summary>Hint only: which repo this mod actually came from, so a
         /// client that can't resolve it from any repo it has added knows what to
         /// suggest adding. Never resolved into a pull on its own.</summary>
@@ -39,11 +45,19 @@ public static class ModHandshake
                 Version = m.Record.Version,
                 ClientSide = m.Record.ClientSide,
                 ServerSide = m.Record.ServerSide,
+                ParityRequired = m.Record.ParityRequired,
                 SourceRepo = m.Record.SourceRepo
             })
             .ToList();
 
-        var fingerprint = string.Join("\n", mods.Select(m => $"{m.Id}@{m.Version}"));
+        // ParityRequired is part of the fingerprint, not just the list. A server
+        // can flip a mod between required and recommended without its version
+        // moving, and a client caches this whole list against this hash - so
+        // leaving it out would let a client keep planning against the old answer
+        // until it restarted, and skip a mod that had since become mandatory.
+        // Must stay byte-identical to modmanager.py's handshake_snapshot.
+        var fingerprint = string.Join("\n",
+            mods.Select(m => $"{m.Id}@{m.Version}@{(m.ParityRequired ? "req" : "opt")}"));
         string hash;
         using (var sha = SHA256.Create())
         {
