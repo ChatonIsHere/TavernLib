@@ -99,7 +99,10 @@ public static class PlayerJoinFilter
         requestJoinMessage.Serialize(connection, readingStream);
 
         var (_, _, serverMods) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-        if (!serverMods.Any(m => m.ClientSide)) return true;
+        // Nothing to enforce unless at least one mod is both client-side and
+        // parity-required. A server running only recommended client mods can't
+        // reject anyone over them, so it shouldn't read the claim at all.
+        if (!serverMods.Any(m => m.ClientSide && m.ParityRequired)) return true;
 
         var token = JWTUtility.CreateFromString(requestJoinMessage.UserCredentials, true);
         var modsClaim = token.Claims.FirstOrDefault(claim => claim.Type == "TavernMods")?.Value;

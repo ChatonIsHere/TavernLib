@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
+using Newtonsoft.Json;
 
 namespace TavernLib.Backend.Mods;
 
@@ -327,6 +328,33 @@ public static class ModInstaller
         var src = ModPaths.DisabledRecordPath(gameDir, modId);
         if (!File.Exists(src)) return false;
         File.Move(src, ModPaths.ModRecordPath(gameDir, modId));
+        return true;
+    }
+
+    /// <summary>
+    /// Rewrites an installed mod's record from a freshly fetched manifest,
+    /// without touching a single file the mod ships. For fields that describe
+    /// the mod rather than its contents and can therefore change without the
+    /// version changing - parity_required is the one that matters, since a
+    /// server enforces it on joining clients and would otherwise keep reporting
+    /// whatever was true the day it installed.
+    ///
+    /// Writes to whichever record the mod currently has, so a disabled mod stays
+    /// disabled. Returns whether anything actually changed.
+    /// </summary>
+    public static bool RefreshRecordMetadata(string gameDir, ModManifest manifest)
+    {
+        var enabledPath = ModPaths.ModRecordPath(gameDir, manifest.Id);
+        var path = File.Exists(enabledPath) ? enabledPath : ModPaths.DisabledRecordPath(gameDir, manifest.Id);
+        if (!File.Exists(path)) return false;
+
+        var record = JsonConvert.DeserializeObject<ModRecord>(File.ReadAllText(path));
+        if (record == null || record.Id != manifest.Id) return false;
+
+        if (record.ParityRequired == manifest.ParityRequired) return false;
+
+        record.ParityRequired = manifest.ParityRequired;
+        File.WriteAllText(path, JsonConvert.SerializeObject(record, Formatting.Indented));
         return true;
     }
 

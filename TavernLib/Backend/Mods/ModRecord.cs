@@ -23,6 +23,19 @@ public class ModRecord
     [JsonProperty("description")] public string Description { get; set; }
     [JsonProperty("client_side")] public bool ClientSide { get; set; }
     [JsonProperty("server_side")] public bool ServerSide { get; set; }
+
+    /// <summary>Whether a joining client must match this mod's exact version
+    /// (see <see cref="ModParityField"/>). Recorded on disk so the handshake can
+    /// report it without re-fetching the manifest.
+    ///
+    /// Required, with no default: a record written before this field existed
+    /// can't be read, so ReadFrom returns null and the mod counts as not
+    /// installed. Assuming a value would be the one mistake that matters here,
+    /// since it decides whether a joining client is obliged to match. Skipping
+    /// is recoverable - the next reconcile reinstalls it with a full
+    /// record.</summary>
+    [JsonProperty("parity_required", Required = Required.Always)]
+    public bool ParityRequired { get; set; }
     [JsonProperty("dependencies")] public Dictionary<string, string> Dependencies { get; set; } = new();
     [JsonProperty("library_dependencies")] public List<LibraryRecordEntry> LibraryDependencies { get; set; } = new();
     [JsonProperty("download_url")] public string DownloadUrl { get; set; }
@@ -53,6 +66,7 @@ public class ModRecord
         Description = mod.Description,
         ClientSide = mod.ClientSide,
         ServerSide = mod.ServerSide,
+        ParityRequired = mod.ParityRequired,
         Dependencies = new Dictionary<string, string>(mod.Dependencies ?? new()),
         LibraryDependencies = (mod.LibraryDependencies ?? new List<LibraryDependency>())
             .Select(l => new LibraryRecordEntry { Name = l.Name, DownloadUrl = l.DownloadUrl, Sha256 = l.Sha256, Filename = l.Filename })

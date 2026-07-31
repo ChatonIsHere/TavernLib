@@ -35,6 +35,38 @@ public class LibraryDependency
 }
 
 /// <summary>
+/// Reads a <c>parity_required</c> value out of raw JSON: whether a client
+/// joining a server that runs this mod must match its exact version.
+/// <para>
+/// True for mods whose two halves are one system - a voice codec,
+/// a network protocol, anything where both sides exchange data they have to
+/// agree on. False for mods whose halves work independently, where the server
+/// won't block a join and the client is offered the mod rather than obliged to
+/// have it.
+/// </para>
+/// Mandatory, with no default: every shape that carries this field is written
+/// by tooling that knows about it, so a missing one means the data predates the
+/// field or came from something that doesn't implement it, and guessing on its
+/// behalf is exactly what would let a required mod be silently treated as
+/// optional. Callers decide what a failure means - a manifest becomes
+/// unresolvable, an index entry is skipped.
+/// </summary>
+public static class ModParityField
+{
+    public const string Name = "parity_required";
+
+    public static bool Read(JToken value, string idForMsg)
+    {
+        if (value == null || value.Type != JTokenType.Boolean)
+            throw new ModManagerException(
+                $"'{idForMsg}' has no usable {Name} field. It's required: true if a "
+                + "client joining a server running this mod must have this exact "
+                + "version, false if the server shouldn't block the join over it.");
+        return (bool)value;
+    }
+}
+
+/// <summary>
 /// The full per-version manifest, fetched on demand from
 /// manifests/&lt;author&gt;/&lt;repo&gt;/&lt;version&gt;.json (or a latest*.json pointer).
 /// </summary>
@@ -48,6 +80,7 @@ public class ModManifest
     public string Description { get; set; }
     public bool ClientSide { get; set; }
     public bool ServerSide { get; set; }
+    public bool ParityRequired { get; set; }
     public Dictionary<string, string> Dependencies { get; set; } = new();
     public List<LibraryDependency> LibraryDependencies { get; set; } = new();
     public string DownloadUrl { get; set; }
@@ -144,6 +177,7 @@ public class ModManifest
                 Description = (string)d["description"] ?? "",
                 ClientSide = (bool)d["client_side"],
                 ServerSide = (bool)d["server_side"],
+                ParityRequired = ModParityField.Read(d[ModParityField.Name], idForMsg),
                 Dependencies = deps,
                 LibraryDependencies = libs,
                 DownloadUrl = (string)d["download_url"],
@@ -182,6 +216,7 @@ public class ModSummary
     public string Description { get; set; }
     public bool ClientSide { get; set; }
     public bool ServerSide { get; set; }
+    public bool ParityRequired { get; set; }
     public List<string> Versions { get; set; } = new();
     public string SourceRepo { get; set; }
 
@@ -207,6 +242,19 @@ public class ModSummary
         }
         if (versions.Count == 0) return null;
 
+        bool parityRequired;
+        try
+        {
+            parityRequired = ModParityField.Read(d[ModParityField.Name], modId);
+        }
+        catch (ModManagerException)
+        {
+            // One malformed entry shouldn't cost the whole index. Skipped rather
+            // than guessed at, same as an entry with no usable versions.
+            TavernLogger.Warn($"index entry for {modId} in {sourceRepo} has no {ModParityField.Name} field, skipped.");
+            return null;
+        }
+
         return new ModSummary
         {
             Id = modId,
@@ -215,6 +263,7 @@ public class ModSummary
             Description = (string)d["description"] ?? "",
             ClientSide = (bool?)d["client_side"] ?? false,
             ServerSide = (bool?)d["server_side"] ?? false,
+            ParityRequired = parityRequired,
             Versions = versions,
             SourceRepo = sourceRepo,
         };
