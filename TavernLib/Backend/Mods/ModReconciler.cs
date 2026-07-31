@@ -135,6 +135,16 @@ public static class ModReconciler
             var needsInstall = existing == null || existing.Record.Version != target.Version;
             if (!needsInstall)
             {
+                // The manifest was fetched to work out the target version, so
+                // catching the record up on metadata that can change without the
+                // version changing costs nothing extra. parity_required is why
+                // this is here: a mod published before that field existed, or
+                // later relaxed, would otherwise be enforced on joining clients
+                // forever on the strength of a stale record.
+                if (ModInstaller.RefreshRecordMetadata(gameDir, target))
+                    TavernLogger.Msg($"mod reconcile: refreshed '{entry.Id}' record metadata "
+                                     + $"(parity_required now {target.ParityRequired}).");
+
                 // Already at the target version, so its dependencies are already
                 // on disk and their records name the whole closure - no fetching.
                 AddInstalledClosure(entry.Id, installedById, keep);
