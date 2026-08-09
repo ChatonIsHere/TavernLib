@@ -163,7 +163,12 @@ public static class ModReconciler
                 return m;
             }
 
-            var deps = ModDependencyResolver.ResolveDependencies(new List<ModManifest> { target }, index, Fetch);
+            // Always the server side: this is TavernLib reconciling the mod set of
+            // the host it is running inside, which is a server by definition. A
+            // dependency that only runs on clients is pruned rather than installed
+            // into a process that would throw loading it.
+            var deps = ModDependencyResolver.ResolveDependencies(
+                new List<ModManifest> { target }, index, Fetch, ModManagerConstants.SideServer);
             var libs = ModInstaller.CollectLibraryDependencies(new[] { target }.Concat(deps));
             ModInstaller.InstallModClosure(gameDir, target, deps, libs, deadline);
             TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version}.");

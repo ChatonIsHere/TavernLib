@@ -37,6 +37,15 @@ public static class ModManagerConstants
 
     public const int MaxDependencyDepth = 5;
 
+    /// <summary>The two kinds of process a mod closure can be installed into.
+    /// Strings rather than an enum, matching modmanager's `side` exactly, since
+    /// the dependency resolver either side runs has to make the same call on the
+    /// same data - a client-only dependency skipped by the launcher must be
+    /// skipped here too, or the crash this prevents comes back on headless
+    /// hosts only.</summary>
+    public const string SideClient = "client";
+    public const string SideServer = "server";
+
     public const int IndexTtlSeconds = 300;
 
     public const int ZipMaxEntries = 2000;
