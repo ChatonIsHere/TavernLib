@@ -346,7 +346,12 @@ internal class AuthManager
             var header = BitConverter.GetBytes(body.Length);
             if (BitConverter.IsLittleEndian) Array.Reverse(header);
 
-            TavernLogger.Msg($"Writing framed response to joining client: {serializedResponse}");
+            // Size only, never the body. This port answers mods_list without
+            // authentication (it is discovery data, deliberately), so anything
+            // that can reach it can make the server write a line to its log on
+            // demand - and the body here is the whole installed-mods list,
+            // which for a well-stocked server is kilobytes per request.
+            TavernLogger.Msg($"Writing framed response to joining client ({body.Length} bytes)");
 
             await stream.WriteAsync(header, 0, header.Length);
             await stream.WriteAsync(body, 0, body.Length);

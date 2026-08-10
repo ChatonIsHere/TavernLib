@@ -118,8 +118,15 @@ public static class ModInstaller
         foreach (var entry in zip.Entries)
         {
             var name = entry.FullName;
-            if (name.StartsWith("/") || name.StartsWith("\\") || (name.Length >= 2 && name[1] == ':'))
+            if (name.StartsWith("/") || name.StartsWith("\\"))
                 throw new ModManagerException($"Unsafe archive entry '{name}': absolute path.");
+            // A colon anywhere, not just a drive letter in position 1: on NTFS
+            // "mod.dll:payload" writes an alternate data stream hanging off
+            // mod.dll rather than a file, which the containment check below
+            // reads as staying inside destRoot.
+            if (name.Contains(":"))
+                throw new ModManagerException(
+                    $"Unsafe archive entry '{name}': contains a colon (drive letter or NTFS alternate data stream).");
 
             // Symlinks are stored in the high 16 bits of ExternalAttributes as a unix
             // file-mode; 0xA000 is S_IFLNK. A symlink could point outside destDir.
