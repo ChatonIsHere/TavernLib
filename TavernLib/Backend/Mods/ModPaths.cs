@@ -7,8 +7,8 @@ public static class ModPaths
     /// <summary>
     /// Last-line path-traversal guard, applied to a mod id and every install
     /// filename right before it touches disk. Throws if name has any directory
-    /// part, contains '/' or '\', or is "." / "..". An id/filename from an
-    /// unreviewed third-party repo can't be trusted to be path-safe.
+    /// part, contains '/' or '\' or ':', or is "." / "..". An id/filename from
+    /// an unreviewed third-party repo can't be trusted to be path-safe.
     /// </summary>
     public static string SafeBasename(string name)
     {
@@ -16,6 +16,13 @@ public static class ModPaths
             throw new ModManagerException($"Unsafe filename '{name}'.");
         if (name.Contains("/") || name.Contains("\\"))
             throw new ModManagerException($"Filename '{name}' must not contain a path separator.");
+        // A colon is a drive separator ("C:evil.dll" resolves somewhere else
+        // entirely) and, on NTFS, the alternate-data-stream separator:
+        // "mod.dll:x" opens a hidden stream on mod.dll rather than a file of
+        // its own. Path.GetFileName treats neither as a directory part, so the
+        // check below doesn't catch it. No legal Windows filename has one.
+        if (name.Contains(":"))
+            throw new ModManagerException($"Filename '{name}' must not contain a colon.");
         if (Path.GetFileName(name) != name)
             throw new ModManagerException($"Filename '{name}' must be a bare basename.");
         return name;
