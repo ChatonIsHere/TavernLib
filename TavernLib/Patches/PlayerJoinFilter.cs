@@ -98,7 +98,12 @@ public static class PlayerJoinFilter
         var requestJoinMessage = new RequestJoinMessage();
         requestJoinMessage.Serialize(connection, readingStream);
 
-        var (_, _, serverMods) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        // Managed mods only, and the untracked list is discarded here on
+        // purpose: this decides whether to REFUSE a join, and an untracked mod
+        // has no id or version a client could ever be asked to match. A server
+        // reports them so a player knows they exist, never to hold them against
+        // one.
+        var (_, _, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
         // Nothing to enforce unless at least one mod is both client-side and
         // parity-required. A server running only recommended client mods can't
         // reject anyone over them, so it shouldn't read the claim at all.

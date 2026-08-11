@@ -29,10 +29,19 @@ internal static class AuthPayloads
     /// AuthManager.WriteFramedResponse. Everything else on this port is small
     /// enough for the existing single recv/send; this is the one payload that
     /// can genuinely outgrow it.</summary>
-    public readonly struct ModsListResponse(List<ModHandshake.Entry> mods)
+    public readonly struct ModsListResponse(List<ModHandshake.Entry> mods, List<ModHandshake.UntrackedEntry> untracked)
     {
         [JsonProperty(PropertyName = "status")] private string Status => "ok";
         [JsonProperty(PropertyName = "mods")] private List<ModHandshake.Entry> Mods => mods;
+
+        /// <summary>Mods this server runs that its own manager didn't install -
+        /// advisory only. Kept a separate field rather than merged into `mods`
+        /// because a client feeds that straight into join planning, which
+        /// resolves every entry it's given; these have no id or version to
+        /// resolve. A client too old to know the field ignores it and joins
+        /// exactly as before, which is right for something that never blocks a
+        /// join anyway.</summary>
+        [JsonProperty(PropertyName = "untracked")] private List<ModHandshake.UntrackedEntry> Untracked => untracked;
     }
 
 

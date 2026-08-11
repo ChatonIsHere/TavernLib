@@ -56,5 +56,12 @@ public static class ModPaths
     /// Dot-prefixed so MelonLoader ignores it even if a crash leaves one behind.</summary>
     public static string StagingPath(string gameDir, string modId) => Path.Combine(ModsBase(gameDir), $".{SafeBasename(modId)}.installing");
 
+    /// <summary>Where a Mods/&lt;name&gt;/ folder we didn't install goes when a mod of
+    /// the same id needs that path. Dot-prefixed, so nothing that scans Mods/ -
+    /// MelonLoader, the installed lister, the untracked lister - sees what's
+    /// parked in here. An operator's own files are moved aside, never deleted,
+    /// because a headless install has nobody to ask.</summary>
+    public static string DisplacedBase(string gameDir) => Path.Combine(ModsBase(gameDir), ".displaced");
+
     public static string LibrarySidecarPath(string gameDir, string filename) => Path.Combine(UserLibsDir(gameDir), $"{filename}.meta.json");
 }

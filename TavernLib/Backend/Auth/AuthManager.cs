@@ -117,7 +117,7 @@ internal class AuthManager
 
     private async Task WritePongResponse(Stream stream)
     {
-        var (modsHash, modsCount, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        var (modsHash, modsCount, _, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
 
         var response = new AuthPayloads.PingResponse(
             _manager.ServerConfig.LastRead.Name,
@@ -135,8 +135,8 @@ internal class AuthManager
     /// outgrow one recv's buffer (see AuthPayloads.ModsListResponse).</summary>
     private async Task WriteModsListResponse(Stream stream)
     {
-        var (_, _, mods) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-        var response = new AuthPayloads.ModsListResponse(mods);
+        var (_, _, mods, untracked) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        var response = new AuthPayloads.ModsListResponse(mods, untracked);
         await WriteFramedResponse(stream, response);
     }
 

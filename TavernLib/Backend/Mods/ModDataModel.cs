@@ -45,11 +45,10 @@ public class LibraryDependency
 /// have it.
 /// </para>
 /// Mandatory, with no default: every shape that carries this field is written
-/// by tooling that knows about it, so a missing one means the data predates the
-/// field or came from something that doesn't implement it, and guessing on its
-/// behalf is exactly what would let a required mod be silently treated as
-/// optional. Callers decide what a failure means - a manifest becomes
-/// unresolvable, an index entry is skipped.
+/// by tooling that knows about it, so a missing one means the data is
+/// malformed, and guessing on its behalf is exactly what would let a required
+/// mod be silently treated as optional. Callers decide what a failure means - a
+/// manifest becomes unresolvable, an index entry is skipped.
 /// </summary>
 public static class ModParityField
 {
