@@ -59,6 +59,12 @@ public static class ModManagerConstants
     /// folder no longer contains RecordName and MelonLoader stops scanning it.</summary>
     public const string DisabledRecordName = "manifest.disabled.json";
 
+    /// <summary>Appended to a loose root Mods/&lt;name&gt;.dll to disable it. A root
+    /// dll has no manifest to hide behind and MelonLoader loads any Mods/*.dll
+    /// it finds, so renaming the file is the only thing that stops it loading.
+    /// Mirrors modmanager.py's disable_untracked_dll.</summary>
+    public const string DisabledDllSuffix = ".disabled";
+
     /// <summary>Hard wall-clock cap on the whole reconcile pass, since a headless
     /// boot has no user watching a progress bar to give up on.</summary>
     public const int ReconcileMaxSeconds = 300;

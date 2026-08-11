@@ -28,12 +28,12 @@ public class ModRecord
     /// (see <see cref="ModParityField"/>). Recorded on disk so the handshake can
     /// report it without re-fetching the manifest.
     ///
-    /// Required, with no default: a record written before this field existed
-    /// can't be read, so ReadFrom returns null and the mod counts as not
-    /// installed. Assuming a value would be the one mistake that matters here,
-    /// since it decides whether a joining client is obliged to match. Skipping
-    /// is recoverable - the next reconcile reinstalls it with a full
-    /// record.</summary>
+    /// Required, with no default: every record we write carries it, so one
+    /// without it is corrupt and can't be read - ReadFrom returns null and the
+    /// mod counts as not installed. Assuming a value would be the one mistake
+    /// that matters here, since it decides whether a joining client is obliged
+    /// to match. Reading as not-installed is recoverable: the next reconcile
+    /// reinstalls it with a full record.</summary>
     [JsonProperty("parity_required", Required = Required.Always)]
     public bool ParityRequired { get; set; }
     [JsonProperty("dependencies")] public Dictionary<string, string> Dependencies { get; set; } = new();

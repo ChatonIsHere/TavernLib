@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -15,6 +17,16 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModHandshake
 {
+    /// <summary>An untracked mod the server is running - one MelonLoader loads
+    /// that this manager didn't install. Name and shape are all a server can
+    /// honestly say about one: there's no id, version, or source to send, which
+    /// is exactly why a client can display it but never resolve, install, or be
+    /// blocked over it.</summary>
+    public class UntrackedEntry
+    {
+        [JsonProperty("name")] public string Name { get; set; }
+        [JsonProperty("kind")] public string Kind { get; set; }
+    }
     public class Entry
     {
         [JsonProperty("id")] public string Id { get; set; }
@@ -34,7 +46,37 @@ public static class ModHandshake
         [JsonProperty("source_repo")] public string SourceRepo { get; set; }
     }
 
-    public static (string Hash, int Count, List<Entry> Mods) Snapshot(string gameDir)
+    /// <summary>
+    /// A cheap "has this changed?" marker for one untracked mod: its mtime as
+    /// whole Unix seconds, never a content hash. Snapshot runs on every ping,
+    /// and hashing every loose DLL in Mods/ that often would cost far more than
+    /// an advisory is worth.
+    ///
+    /// mtime alone, not mtime+size, so this stays byte-identical to
+    /// modmanager.py's _untracked_stamp: a directory has no portable size the
+    /// two could agree on. A directory's own mtime moves when entries are added
+    /// or removed, so a folder mod gaining or losing files still
+    /// re-fingerprints. Anything unreadable stamps "?" rather than throwing - a
+    /// mod vanishing mid-scan must not take the whole handshake down with it.
+    /// </summary>
+    private static string UntrackedStamp(string gameDir, UntrackedEntry entry)
+    {
+        try
+        {
+            var path = Path.Combine(ModPaths.ModsBase(gameDir), entry.Name);
+            var writtenUtc = entry.Kind == UntrackedMod.KindFolder
+                ? new DirectoryInfo(path).LastWriteTimeUtc
+                : new FileInfo(path).LastWriteTimeUtc;
+            return new DateTimeOffset(writtenUtc, TimeSpan.Zero).ToUnixTimeSeconds()
+                .ToString(CultureInfo.InvariantCulture);
+        }
+        catch (Exception)
+        {
+            return "?";
+        }
+    }
+
+    public static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) Snapshot(string gameDir)
     {
         var mods = ModInstaller.ListInstalledModsWithState(gameDir)
             .Where(m => m.Enabled)
@@ -50,14 +92,27 @@ public static class ModHandshake
             })
             .ToList();
 
+        var untracked = ModInstaller.ListUntrackedMods(gameDir)
+            .Where(u => u.Enabled)
+            .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(u => new UntrackedEntry { Name = u.Name, Kind = u.Kind })
+            .ToList();
+
         // ParityRequired is part of the fingerprint, not just the list. A server
         // can flip a mod between required and recommended without its version
         // moving, and a client caches this whole list against this hash - so
         // leaving it out would let a client keep planning against the old answer
         // until it restarted, and skip a mod that had since become mandatory.
+        //
+        // Untracked mods are in it for the same reason: a client caches the
+        // whole reply against this hash, so leaving them out would let an
+        // operator drop a new DLL into Mods/ and have every client keep
+        // reporting the old set until something else happened to move the hash.
         // Must stay byte-identical to modmanager.py's handshake_snapshot.
-        var fingerprint = string.Join("\n",
-            mods.Select(m => $"{m.Id}@{m.Version}@{(m.ParityRequired ? "req" : "opt")}"));
+        var lines = mods
+            .Select(m => $"{m.Id}@{m.Version}@{(m.ParityRequired ? "req" : "opt")}")
+            .Concat(untracked.Select(u => $"untracked:{u.Name}@{UntrackedStamp(gameDir, u)}"));
+        var fingerprint = string.Join("\n", lines);
         string hash;
         using (var sha = SHA256.Create())
         {
@@ -65,6 +120,9 @@ public static class ModHandshake
             hash = BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
         }
 
-        return (hash, mods.Count, mods);
+        // Count is MANAGED mods only, deliberately: it's sent in the pong so a
+        // client can sanity-check its cached mods list without decoding
+        // anything, and that list is the managed one.
+        return (hash, mods.Count, mods, untracked);
     }
 }

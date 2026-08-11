@@ -13,6 +13,14 @@ namespace TavernLib.Backend.Server.Configs;
 /// (client or launcher-run server) is this exact shape, so it can become a
 /// headless server's config directly, with no conversion step.
 ///
+/// Such a file may also carry an `untracked` block, naming what the exporting
+/// machine ran that its manager didn't install. There is deliberately no
+/// property for it here: those entries are filenames, not mod ids, and
+/// reconcile has no way to obtain such a mod - so the right behaviour is to
+/// ignore the key, which Newtonsoft does for anything undeclared. That is also
+/// why the exporter keeps them out of `mods`: an entry in there would be parsed
+/// as an id by ModsListEntry and resolved against the trusted repos every boot.
+///
 /// `repos` is informational only - each entry is a repo's "Author/Repo"
 /// shorthand (see ModManagerConstants.RepoShorthand), naming where this
 /// modlist's mods are expected to come from, for a human reading the file.
