@@ -44,6 +44,16 @@ public static class ModHandshake
         /// client that can't resolve it from any repo it has added knows what to
         /// suggest adding. Never resolved into a pull on its own.</summary>
         [JsonProperty("source_repo")] public string SourceRepo { get; set; }
+
+        /// <summary>The manifest's artifact sha256, off the install record.
+        /// Advisory and additive - deliberately NOT part of the fingerprint
+        /// hash below (which must stay byte-identical to modmanager.py's):
+        /// a client holding the same id and version but different bytes (a
+        /// release re-published under its version, or the same version from
+        /// a different repo) passes version parity yet genuinely diverges,
+        /// and this lets the client's launcher at least say so. Empty when
+        /// the record predates the field.</summary>
+        [JsonProperty("sha256")] public string Sha256 { get; set; }
     }
 
     /// <summary>
@@ -88,7 +98,8 @@ public static class ModHandshake
                 ClientSide = m.Record.ClientSide,
                 ServerSide = m.Record.ServerSide,
                 ParityRequired = m.Record.ParityRequired,
-                SourceRepo = m.Record.SourceRepo
+                SourceRepo = m.Record.SourceRepo,
+                Sha256 = m.Record.Sha256 ?? ""
             })
             .ToList();
 
