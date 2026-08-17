@@ -48,6 +48,27 @@ public class ModRecord
     /// another installed mod still lists stays put.</summary>
     [JsonProperty("libraries")] public List<string> Libraries { get; set; } = new();
 
+    /// <summary>{relative path (forward slashes): sha256} for everything the
+    /// installer assembled into this mod's folder, hashed out of staging right
+    /// before this record was written into it (so the record is never part of
+    /// its own map). What <see cref="ModInstaller.VerifyModFiles"/> checks, and
+    /// the same map modmanager.py's verify_mod_files reads - a mod installed
+    /// here shows up as Damaged in the launcher's Mod Manager, and one installed
+    /// there is checked by reconcile on this side.
+    ///
+    /// Null (absent), never an empty object, when there's nothing to check: a
+    /// record written before this field existed. Deserialization leaves it null
+    /// rather than defaulting to an empty map for exactly that reason - "no
+    /// evidence" has to stay distinguishable from "evidence of nothing", since
+    /// the second would call every file legitimately missing. Both readers treat
+    /// absent as "no damage detection", never as damaged.
+    ///
+    /// Kept out of the handshake fingerprint deliberately - see
+    /// <see cref="ModHandshake"/>, whose hash must stay byte-identical to the
+    /// launcher's.</summary>
+    [JsonProperty("files", NullValueHandling = NullValueHandling.Ignore)]
+    public Dictionary<string, string> Files { get; set; }
+
     public class LibraryRecordEntry
     {
         [JsonProperty("name")] public string Name { get; set; }

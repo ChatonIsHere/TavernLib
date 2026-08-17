@@ -133,6 +133,23 @@ public static class ModReconciler
                 : client.ResolveModById(repos, entry.Id);
 
             var needsInstall = existing == null || existing.Record.Version != target.Version;
+
+            // Right version, wrong bytes. A version number is a claim about
+            // files, and a mod half-eaten by antivirus or left truncated by a
+            // cut-short write satisfies the comparison above while being
+            // unloadable in practice - so the files map the install wrote is
+            // re-checked before concluding there's nothing to do. A record with
+            // no map (installed before the field existed) verifies as null, not
+            // false, and is left exactly alone; this only ever fires on real
+            // evidence. The reinstall costs a download, which is why it's tested
+            // second, after the cheap version comparison has already said no.
+            if (!needsInstall && ModInstaller.VerifyModFiles(gameDir, entry.Id) == false)
+            {
+                TavernLogger.Warn($"mod reconcile: '{entry.Id}' {existing.Record.Version} is damaged "
+                                  + "- its files no longer match what was installed. Reinstalling it.");
+                needsInstall = true;
+            }
+
             if (!needsInstall)
             {
                 // The manifest was fetched to work out the target version, so

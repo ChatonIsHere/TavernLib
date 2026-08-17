@@ -79,16 +79,34 @@ public static class ModsCommandModule
         var untracked = ModInstaller.ListUntrackedMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
+        // Re-hashed here rather than read off a cached answer: this is an
+        // operator asking, once, on demand - the same gesture the launcher's
+        // Refresh button makes, and the only moment a headless server has to
+        // report damage between restarts. Everything else that cares (reconcile)
+        // asks at boot.
+        var damaged = installed
+            .Where(m => ModInstaller.VerifyModFiles(gameDir, m.Record.Id) == false)
+            .Select(m => m.Record.Id)
+            .ToHashSet();
+
         // Sorted, and managed before untracked: this merges two directory scans
         // whose order is filesystem-dependent, so without it the same Mods/
         // folder can list differently between two runs.
         var lines = installed
             .OrderBy(m => m.Record.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)}")
+            .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)}"
+                         + (damaged.Contains(m.Record.Id) ? " [DAMAGED]" : ""))
             .Concat(untracked
                 .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(u => $"{u.Name} - {State(u.Enabled)} [untracked {u.Kind}]"));
-        return string.Join("\n", lines);
+        var listing = string.Join("\n", lines);
+        if (damaged.Count == 0) return listing;
+        // Said explicitly because the state is otherwise alarming and the fix
+        // is already scheduled: reconcile re-checks the files map at boot and
+        // reinstalls anything that doesn't match.
+        return listing + $"\n\n{damaged.Count} mod(s) no longer match the files that were installed "
+                       + "(a cut-short write, or antivirus removing a DLL). They'll be reinstalled "
+                       + "automatically on the next server restart.";
     }
 
     private static string State(bool enabled) => enabled ? "enabled" : "disabled";
