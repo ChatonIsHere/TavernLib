@@ -161,6 +161,70 @@ public static class ModInstaller
         }
     }
 
+    /// <summary>
+    /// {relative path (forward slashes): sha256} for every file under baseDir,
+    /// at any depth. Run over the assembled staging dir at install time, before
+    /// the record is written into it, so the record itself is never part of the
+    /// map.
+    ///
+    /// The key convention is a cross-language invariant, not a local choice:
+    /// modmanager.py's _hash_tree writes forward slashes and lowercase hex, and
+    /// its verify_mod_files re-joins those keys against the mod folder. A record
+    /// written here with backslash keys would read as damaged on the launcher
+    /// side and vice versa, so the separator is normalised rather than left as
+    /// whatever Path handed back.
+    /// </summary>
+    private static Dictionary<string, string> HashTree(string baseDir)
+    {
+        // Trimmed, so the Substring below can't leave a leading separator on
+        // one platform and not the other.
+        var root = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var map = new Dictionary<string, string>();
+        foreach (var path in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetFullPath(path).Substring(root.Length)
+                .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Replace(Path.DirectorySeparatorChar, '/')
+                .Replace('\\', '/');
+            map[rel] = Sha256File(path);
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Whether an installed mod's files still match what <see cref="InstallMod"/>
+    /// recorded putting there - the headless half of the launcher's damaged
+    /// state, and the same check modmanager.py's verify_mod_files runs against
+    /// the same map.
+    ///
+    /// true = every recorded file is present at its recorded hash. false =
+    /// something is missing or altered (antivirus ate a DLL, a write was cut
+    /// short). null = nothing to check: not installed, or the record carries no
+    /// files map because it predates the field. null is deliberately not false -
+    /// calling a mod damaged with no evidence would reinstall every pre-existing
+    /// install the first time a server booted on this build.
+    ///
+    /// Re-hashes on every call, with no memo: the launcher needs one because its
+    /// UI re-asks on every window open, whereas this runs once per mod per
+    /// reconcile pass, inside a boot that is already downloading from the
+    /// network.
+    /// </summary>
+    public static bool? VerifyModFiles(string gameDir, string modId)
+    {
+        var record = ModRecord.Read(gameDir, modId);
+        if (record?.Files == null || record.Files.Count == 0) return null;
+
+        var modDir = ModPaths.ModDirPath(gameDir, modId);
+        foreach (var entry in record.Files)
+        {
+            var path = Path.Combine(modDir, entry.Key.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(path)) return false;
+            if (!string.Equals(Sha256File(path), entry.Value ?? "", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
+    }
+
     private static void ResetDir(string path)
     {
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
@@ -231,7 +295,14 @@ public static class ModInstaller
             {
                 DownloadVerifyMove(mod.DownloadUrl, mod.Sha256, Path.Combine(staging, mod.InstallName()), deadlineUtc);
             }
-            ModRecord.FromManifest(mod).WriteTo(Path.Combine(staging, ModManagerConstants.RecordName));
+            // Hash everything just assembled (the record isn't written yet, so
+            // it never hashes itself) and put the map in the record, so
+            // VerifyModFiles - and the launcher's Mod Manager, reading the same
+            // field - can later tell "still exactly what was installed" from
+            // "something ate or corrupted a file".
+            var record = ModRecord.FromManifest(mod);
+            record.Files = HashTree(staging);
+            record.WriteTo(Path.Combine(staging, ModManagerConstants.RecordName));
 
             ClearInstallPath(gameDir, mod.Id);
             Directory.Move(staging, modDir);
@@ -423,6 +494,13 @@ public static class ModInstaller
     ///
     /// Writes to whichever record the mod currently has, so a disabled mod stays
     /// disabled. Returns whether anything actually changed.
+    ///
+    /// This is a full deserialize/reserialize, so every field the record carries
+    /// has to be modelled on <see cref="ModRecord"/> or it is silently dropped
+    /// on the way back out. That's why the files map is modelled here even
+    /// though this method never touches it: a mod the LAUNCHER installed, on a
+    /// game folder a headless server later reconciles, would otherwise lose its
+    /// damage detection the first time this ran over it.
     /// </summary>
     public static bool RefreshRecordMetadata(string gameDir, ModManifest manifest)
     {
