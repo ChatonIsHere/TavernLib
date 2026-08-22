@@ -52,8 +52,7 @@ public static class ModDependencyResolver
 
         var rootIds = new HashSet<string>(roots.Select(r => r.Id));
         var chosen = new Dictionary<string, ModManifest>();
-        var reqMajor = new Dictionary<string, int>();
-        var reqMin = new Dictionary<string, ModVersion>();
+        var reqMin = new Dictionary<string, ModVersion>();   // the required major is reqMin[id].Major
         var reqBy = new Dictionary<string, (string Requirer, string Constraint)>();
         var pruned = new HashSet<string>();   // wrong-side ids, so each is fetched at most once
 
@@ -95,14 +94,15 @@ public static class ModDependencyResolver
             }
             var major = mv.Major;
 
-            if (reqMajor.TryGetValue(depId, out var existingMajor) && existingMajor != major)
+            var hasPrev = reqMin.TryGetValue(depId, out var curMin);
+            if (hasPrev && curMin.Major != major)
             {
                 var (prevName, prevC) = reqBy[depId];
                 throw new ModManagerException(
-                    $"Dependency conflict on '{depId}': {prevName} needs {prevC} (major {existingMajor}) but {requirer} needs {minV} (major {major}). These majors can't be satisfied together.");
+                    $"Dependency conflict on '{depId}': {prevName} needs {prevC} (major {curMin.Major}) but {requirer} needs {minV} (major {major}). These majors can't be satisfied together.");
             }
 
-            var newMin = reqMin.TryGetValue(depId, out var curMin) && curMin > mv ? curMin : mv;
+            var newMin = hasPrev && curMin > mv ? curMin : mv;
 
             summ.TryGetValue((depId, major), out var summary);
             var available = summary?.Versions ?? new List<string>();
@@ -117,7 +117,6 @@ public static class ModDependencyResolver
 
             void Record()
             {
-                reqMajor[depId] = major;
                 reqMin[depId] = newMin;
                 if (!reqBy.ContainsKey(depId)) reqBy[depId] = (requirer, minV);
             }

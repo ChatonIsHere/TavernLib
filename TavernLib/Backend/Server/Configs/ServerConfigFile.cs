@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using Newtonsoft.Json;
 
@@ -9,7 +9,7 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
     private string FilePath { get; set; } = filePath;
     public T LastRead { get; private set; } = new();
 
-        
+
     public virtual void ReadFromFile()
     {
         try
@@ -17,16 +17,14 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
             if (!File.Exists(FilePath))
             {
                 LastRead = new T();
-                    
-                using var stream = File.CreateText(FilePath);
-                stream.WriteAsync(JsonConvert.SerializeObject(LastRead, Formatting.Indented));
-                    
+                File.WriteAllText(FilePath, JsonConvert.SerializeObject(LastRead, Formatting.Indented));
                 return;
             }
 
-            var config = File.ReadAllText(FilePath);
-            var result = JsonConvert.DeserializeObject<T>(config);
-            LastRead = result;
+            // An empty or truncated file deserializes to null. That's "nothing
+            // configured yet", and defaulting it here means no reader has to
+            // remember to null-check a config that is never null otherwise.
+            LastRead = JsonConvert.DeserializeObject<T>(File.ReadAllText(FilePath)) ?? new T();
         }
         catch (Exception e)
         {
@@ -34,21 +32,12 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
             throw;
         }
     }
-        
+
     public virtual void WriteToFile()
     {
         try
         {
-            if (!File.Exists(FilePath))
-            {
-                LastRead ??= new T();
-                    
-                using var stream = File.CreateText(FilePath);
-                stream.WriteAsync(JsonConvert.SerializeObject(LastRead, Formatting.Indented));
-                    
-                return;
-            }
-
+            LastRead ??= new T();
             File.WriteAllText(FilePath, JsonConvert.SerializeObject(LastRead, Formatting.Indented));
         }
         catch (Exception e)

@@ -27,19 +27,17 @@ namespace TavernLib.Patches;
 [HarmonyPatch]
 public static class JoinRejectionRecorder
 {
-    private const string ModMismatchPrefix = "Mod mismatch: ";
-
     [HarmonyPatch(typeof(JoinServerPipeline), nameof(JoinServerPipeline.OnServerRejectedRequest)), HarmonyPostfix]
     public static void OnServerRejectedRequest(Connection connection, ConfirmJoinMessage joinMessage, JoinServerPipeline __instance)
     {
         try
         {
             var error = joinMessage.Error;
-            if (string.IsNullOrEmpty(error) || !error.StartsWith(ModMismatchPrefix))
+            if (string.IsNullOrEmpty(error) || !error.StartsWith(ModParity.MismatchReasonPrefix))
                 return;
 
             var missing = JsonConvert.DeserializeObject<List<ModParity.RequiredMod>>(
-                error.Substring(ModMismatchPrefix.Length));
+                error.Substring(ModParity.MismatchReasonPrefix.Length));
             if (missing == null || missing.Count == 0)
                 return;
 

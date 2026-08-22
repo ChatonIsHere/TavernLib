@@ -17,19 +17,8 @@ public class ServerListingController
     {
         _manager = manager;
 
-        var handler = new HttpClientHandler();
-        var systemProxy = WindowsProxy.CreateSystemProxy();
-        if (systemProxy != null)
-        {
-            handler.Proxy = systemProxy;
-            handler.UseProxy = true;
-        }
-
-        _apiClient = new HttpClient(handler)
-        {
-            BaseAddress = new Uri(BackendUtils.TavernApi),
-            Timeout = TimeSpan.FromSeconds(6)
-        };
+        _apiClient = WindowsProxy.CreateHttpClient(TimeSpan.FromSeconds(6));
+        _apiClient.BaseAddress = new Uri(BackendUtils.TavernApi);
             
         _ = HeartbeatAsync();
         Application.wantsToQuit += StartClosingListing;

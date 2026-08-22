@@ -69,12 +69,17 @@ public class Tavern : MelonPlugin
                 var isLauncherManaged = CommandLineArguments.Contains(TavernArgs.DontManageAuth);
                 if (!isLauncherManaged) TeenyPatches.EnsureConsoleToken();
 
-                TavernServices.AddService(new TavernManager());
-
+                // Reconcile BEFORE TavernManager goes up: constructing it starts
+                // AuthManager's port-1762 listener, whose ping/mods_list answers
+                // snapshot Mods/ - the very directory reconcile may still be
+                // rewriting for minutes. Started in this order, a client can't
+                // cache a mods hash for a state that never finishes existing.
                 if (!isLauncherManaged && CommandLineArguments.TryGetNextArguments(TavernArgs.ModsListFile, 1, out var modListArgs))
                     ReconcileMods(modListArgs[0]);
                 else if (isLauncherManaged && CommandLineArguments.Contains(TavernArgs.ModsListFile))
                     TavernLogger.Warn("mod reconcile: /modlist was passed but this server is launcher-managed (/launcherauth present); native mod reconciliation only runs for a genuinely headless server, so it was skipped. The launcher's own mod manager manages Mods/ for this server instead.");
+
+                TavernServices.AddService(new TavernManager());
             }
             
             // Client & Server Services
@@ -106,6 +111,16 @@ public class Tavern : MelonPlugin
                 ? modsListPathArg
                 : Path.Combine(TavernDirectories.ModdingTavern, modsListPathArg);
 
+            // The operator named this file explicitly, so its absence is almost
+            // certainly a typo'd path - not a request for an empty list. Reading
+            // on regardless would auto-create an empty modlist and the reconcile
+            // below would then disable every managed mod against it.
+            if (!File.Exists(path))
+            {
+                TavernLogger.Error($"mod reconcile: modlist file '{path}' does not exist; skipping reconcile and booting with Mods/ unchanged. Fix the /modlist path or create the file.");
+                return;
+            }
+
             var modsList = new ModsListConfig(path);
             modsList.ReadFromFile();
 
@@ -115,12 +130,7 @@ public class Tavern : MelonPlugin
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
 
-            // LastRead is null whenever a config file exists but deserializes to
-            // null - an empty or truncated file, which is exactly what a first
-            // run can leave behind. Defaulting keeps that to "nothing desired /
-            // default repo only" instead of an NRE that skips reconcile whole.
-            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory,
-                modsList.LastRead ?? new ModsList(), trustedRepos.LastRead ?? new TrustedRepos());
+            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead);
         }
         catch (Exception e)
         {

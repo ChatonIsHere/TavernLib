@@ -12,8 +12,13 @@ internal static class AuthPayloads
     }
 
 
+    /// <summary>modsHash/modsCount are null when the server couldn't read its
+    /// own Mods/ for this answer. A launcher treats a pong without them exactly
+    /// as one from a TavernLib that predates mod sync - no sync, no join
+    /// planning - which is the honest degraded answer; an empty hash would
+    /// instead claim "no mods".</summary>
     public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort,
-        string modsHash, int modsCount)
+        string modsHash, int? modsCount)
     {
         [JsonProperty(PropertyName = "status")] private string Pong => "pong";
         [JsonProperty(PropertyName = "server_name")] private string ServerName { get; set; } = serverName;
@@ -21,7 +26,7 @@ internal static class AuthPayloads
         [JsonProperty(PropertyName = "whitelist_enabled")] private bool WhitelistEnabled { get; set; } = whitelistEnabled;
         [JsonProperty(PropertyName = "game_port")] private int GamePort { get; set; } = gamePort;
         [JsonProperty(PropertyName = "mods_hash")] private string ModsHash { get; set; } = modsHash;
-        [JsonProperty(PropertyName = "mods_count")] private int ModsCount { get; set; } = modsCount;
+        [JsonProperty(PropertyName = "mods_count")] private int? ModsCount { get; set; } = modsCount;
     }
 
 

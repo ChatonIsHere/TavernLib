@@ -25,7 +25,7 @@ public class TrustedRepos
     public List<string> EffectiveRepoUrls()
     {
         var stored = (Repos ?? new Dictionary<string, string>()).Values
-            .Where(u => (u ?? "").TrimEnd('/') != ModManagerConstants.DefaultRepo.TrimEnd('/'));
+            .Where(u => !ModManagerConstants.IsDefaultRepo(u));
         return new List<string> { ModManagerConstants.DefaultRepo }.Concat(stored).ToList();
     }
 }

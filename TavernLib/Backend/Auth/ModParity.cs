@@ -13,6 +13,19 @@ namespace TavernLib.Backend.Auth;
 /// </summary>
 public static class ModParity
 {
+    /// <summary>What a mod-mismatch denial reason starts with, before the
+    /// serialized mismatch list. This is a wire format, not a message: the
+    /// client-side JoinRejectionRecorder matches on it to decide whether a
+    /// rejection is recoverable, so producer and consumer read it from
+    /// here rather than each spelling it out.</summary>
+    public const string MismatchReasonPrefix = "Mod mismatch: ";
+
+    /// <summary>Whether a joining client is obliged to match this server mod:
+    /// it runs on clients AND the server requires parity on it. The one
+    /// definition of "enforced", so the join gate's early-exit and the
+    /// validation below can't drift apart.</summary>
+    public static bool IsEnforced(ModHandshake.Entry mod) => mod.ClientSide && mod.ParityRequired;
+
     /// <summary>Same {id, version, source_repo} shape the rejection payload
     /// uses (source_repo is a hint, never authority) - so a mismatch list
     /// computed here drops straight into that file with no reshaping.</summary>
@@ -46,7 +59,7 @@ public static class ModParity
     public static List<RequiredMod> ValidateClient(List<ModHandshake.Entry> serverMods, Dictionary<string, string> clientMods)
     {
         var mismatches = new List<RequiredMod>();
-        foreach (var mod in serverMods.Where(m => m.ClientSide && m.ParityRequired))
+        foreach (var mod in serverMods.Where(IsEnforced))
         {
             clientMods.TryGetValue(mod.Id, out var have);
             if (have != mod.Version)

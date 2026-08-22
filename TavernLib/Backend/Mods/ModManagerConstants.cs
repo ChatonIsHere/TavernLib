@@ -6,6 +6,13 @@ public static class ModManagerConstants
 {
     public const string DefaultRepo = "https://raw.githubusercontent.com/ChatonIsHere/CommunityMods/main";
 
+    /// <summary>The one definition of URL identity for repo and download URLs:
+    /// a trailing slash is not a different repo. Everything that compares or
+    /// keys on a URL goes through this so the answer can't differ by site.</summary>
+    public static string NormalizeUrl(string url) => (url ?? "").TrimEnd('/');
+
+    public static bool IsDefaultRepo(string url) => NormalizeUrl(url) == NormalizeUrl(DefaultRepo);
+
     /// <summary>
     /// Derives a GitHub-style "Author/Repo" display identifier from a repo's
     /// base URL - the first two path segments (works for
@@ -25,7 +32,7 @@ public static class ModManagerConstants
     /// </summary>
     public static string RepoShorthand(string url)
     {
-        var trimmed = (url ?? "").TrimEnd('/');
+        var trimmed = NormalizeUrl(url);
         if (trimmed.Length == 0) return trimmed;
         var path = Uri.TryCreate(trimmed, UriKind.Absolute, out var uri) ? uri.AbsolutePath : trimmed;
         var parts = path.Trim('/').Split('/');
