@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace TavernLib.Backend.Mods;
 
@@ -17,7 +18,8 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModInstaller
 {
-    private static readonly HttpClient DownloadHttp = new();
+    private static readonly HttpClient DownloadHttp =
+        WindowsProxy.CreateHttpClient(TimeSpan.FromSeconds(ModManagerConstants.DownloadTimeoutSeconds));
 
     private static string Sha256File(string path)
     {
@@ -63,7 +65,7 @@ public static class ModInstaller
     /// sha256, then hands the temp path to the caller to move or extract. Always
     /// cleaned up, so a failed verify/move leaves nothing behind.
     /// </summary>
-    private static T VerifiedDownload<T>(string url, string sha256, string workDir, DateTime deadlineUtc, Func<string, T> withTempFile)
+    private static void VerifiedDownload(string url, string sha256, string workDir, DateTime deadlineUtc, Action<string> withTempFile)
     {
         Directory.CreateDirectory(workDir);
         var tmp = Path.Combine(workDir, $".tavern_dl_{Guid.NewGuid():N}.part");
@@ -74,7 +76,7 @@ public static class ModInstaller
             if (!string.Equals(actual, sha256 ?? "", StringComparison.OrdinalIgnoreCase))
                 throw new ModManagerException(
                     $"Downloaded file failed its checksum: expected {sha256}, got {actual}. The file may be corrupted or tampered with; nothing was installed.");
-            return withTempFile(tmp);
+            withTempFile(tmp);
         }
         finally
         {
@@ -94,7 +96,6 @@ public static class ModInstaller
             // afterwards would claim is hash-verified.
             if (File.Exists(destPath)) File.Delete(destPath);
             File.Move(tmp, destPath);
-            return true;
         });
     }
 
@@ -118,6 +119,15 @@ public static class ModInstaller
         foreach (var entry in zip.Entries)
         {
             var name = entry.FullName;
+            // A root-level manifest.json is a natural thing for a mod to ship
+            // (it's MelonLoader's folder marker too), but the install record
+            // is written under exactly that name AFTER the extracted tree is
+            // hashed - so extracting it would record the archive's bytes and
+            // then overwrite them, a permanent "damaged" verdict that reinstalls
+            // the mod on every boot. modmanager.py's _safe_extract_zip skips
+            // the same names.
+            if (name == ModManagerConstants.RecordName || name == ModManagerConstants.DisabledRecordName)
+                continue;
             if (name.StartsWith("/") || name.StartsWith("\\"))
                 throw new ModManagerException($"Unsafe archive entry '{name}': absolute path.");
             // A colon anywhere, not just a drive letter in position 1: on NTFS
@@ -225,6 +235,23 @@ public static class ModInstaller
         return true;
     }
 
+    /// <summary>ModRecord.Read for a folder name that came off the filesystem
+    /// rather than from a manifest. SafeBasename throws on a name a mod could
+    /// never legally have, but the scanners have to survive whatever is
+    /// actually sitting in Mods/ - one oddly-named folder must not take down
+    /// every ping, join, and reconcile.</summary>
+    private static ModRecord ReadRecordSkippingUnsafe(string gameDir, string name)
+    {
+        try
+        {
+            return ModRecord.Read(gameDir, name);
+        }
+        catch (ModManagerException)
+        {
+            return null;
+        }
+    }
+
     private static void ResetDir(string path)
     {
         if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
@@ -284,17 +311,9 @@ public static class ModInstaller
         try
         {
             if (mod.Package == "zip")
-            {
-                VerifiedDownload<object>(mod.DownloadUrl, mod.Sha256, staging, deadlineUtc, tmp =>
-                {
-                    SafeExtractZip(tmp, staging);
-                    return null;
-                });
-            }
+                VerifiedDownload(mod.DownloadUrl, mod.Sha256, staging, deadlineUtc, tmp => SafeExtractZip(tmp, staging));
             else
-            {
                 DownloadVerifyMove(mod.DownloadUrl, mod.Sha256, Path.Combine(staging, mod.InstallName()), deadlineUtc);
-            }
             // Hash everything just assembled (the record isn't written yet, so
             // it never hashes itself) and put the map in the record, so
             // VerifyModFiles - and the launcher's Mod Manager, reading the same
@@ -334,7 +353,7 @@ public static class ModInstaller
                     continue;
                 }
                 if (!string.Equals(existing.Lib.Sha256, lib.Sha256, StringComparison.OrdinalIgnoreCase) ||
-                    existing.Lib.DownloadUrl.TrimEnd('/') != lib.DownloadUrl.TrimEnd('/'))
+                    ModManagerConstants.NormalizeUrl(existing.Lib.DownloadUrl) != ModManagerConstants.NormalizeUrl(lib.DownloadUrl))
                     throw new ModManagerException(
                         $"Library conflict on '{lib.Filename}': {existing.Owner} pins {existing.Lib.DownloadUrl} (sha {existing.Lib.Sha256.Substring(0, 12)}...) but {mod.Name} pins {lib.DownloadUrl} (sha {lib.Sha256.Substring(0, 12)}...). They can't both be installed.");
             }
@@ -355,7 +374,33 @@ public static class ModInstaller
             sha256 = lib.Sha256,
             download_url = lib.DownloadUrl,
         };
-        File.WriteAllText(ModPaths.LibrarySidecarPath(gameDir, name), Newtonsoft.Json.JsonConvert.SerializeObject(sidecar, Newtonsoft.Json.Formatting.Indented));
+        File.WriteAllText(ModPaths.LibrarySidecarPath(gameDir, name), JsonConvert.SerializeObject(sidecar, Formatting.Indented));
+    }
+
+    /// <summary>The UserLibs/ half of <see cref="VerifyModFiles"/>: whether a
+    /// pinned library still matches the sha256 its sidecar recorded. Same
+    /// three answers - null with no sidecar to check against (not ours, or
+    /// predates sidecars), false when the file is missing or altered, true when
+    /// intact.</summary>
+    public static bool? VerifyLibrary(string gameDir, string filename)
+    {
+        var name = ModPaths.SafeBasename(filename);
+        var sidecarPath = ModPaths.LibrarySidecarPath(gameDir, name);
+        if (!File.Exists(sidecarPath)) return null;
+
+        string expected;
+        try
+        {
+            expected = JObject.Parse(File.ReadAllText(sidecarPath))["sha256"]?.ToString();
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        if (string.IsNullOrEmpty(expected)) return null;
+
+        var path = Path.Combine(ModPaths.UserLibsDir(gameDir), name);
+        return File.Exists(path) && string.Equals(Sha256File(path), expected, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -363,13 +408,20 @@ public static class ModInstaller
     /// dependencies, gathers pinned libraries, and only then installs anything -
     /// every cycle/depth/diamond/library conflict is raised before anything
     /// touches disk.
+    ///
+    /// The root goes in LAST. Each InstallMod swaps its folder in atomically,
+    /// so if a later download fails partway the worst case is a new dependency
+    /// sitting beside the OLD root - still a loadable set. Root first would
+    /// leave a new root on disk without the dependencies it was resolved
+    /// against, while the reconciler's fallback goes on describing the old one.
     /// </summary>
     public static void InstallModClosure(string gameDir, ModManifest root, List<ModManifest> deps, List<LibraryDependency> libs, DateTime deadlineUtc)
     {
-        foreach (var m in new[] { root }.Concat(deps))
+        foreach (var m in deps)
             InstallMod(gameDir, m, deadlineUtc);
         foreach (var lib in libs)
             InstallLibraryDependency(gameDir, lib, deadlineUtc);
+        InstallMod(gameDir, root, deadlineUtc);
     }
 
     /// <summary>Delete a UserLibs/ library and its sidecar. Returns whether
@@ -460,26 +512,23 @@ public static class ModInstaller
     /// </summary>
     public static bool DisableUntrackedDll(string gameDir, string filename)
     {
-        var src = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
-        var dest = src + ModManagerConstants.DisabledDllSuffix;
-        if (!File.Exists(src)) return false;
-        if (File.Exists(dest))
-            throw new ModManagerException(
-                $"'{Path.GetFileName(dest)}' already exists; remove or rename it first.");
-        File.Move(src, dest);
-        return true;
+        var enabled = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
+        return MoveRefusingClobber(enabled, enabled + ModManagerConstants.DisabledDllSuffix);
     }
 
     /// <summary>Reverses <see cref="DisableUntrackedDll"/>. Returns whether it was
     /// disabled and is now enabled.</summary>
     public static bool EnableUntrackedDll(string gameDir, string filename)
     {
-        var dest = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
-        var src = dest + ModManagerConstants.DisabledDllSuffix;
+        var enabled = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
+        return MoveRefusingClobber(enabled + ModManagerConstants.DisabledDllSuffix, enabled);
+    }
+
+    private static bool MoveRefusingClobber(string src, string dest)
+    {
         if (!File.Exists(src)) return false;
         if (File.Exists(dest))
-            throw new ModManagerException(
-                $"'{Path.GetFileName(dest)}' already exists; remove or rename it first.");
+            throw new ModManagerException($"'{Path.GetFileName(dest)}' already exists; remove or rename it first.");
         File.Move(src, dest);
         return true;
     }
@@ -514,7 +563,7 @@ public static class ModInstaller
         if (record.ParityRequired == manifest.ParityRequired) return false;
 
         record.ParityRequired = manifest.ParityRequired;
-        File.WriteAllText(path, JsonConvert.SerializeObject(record, Formatting.Indented));
+        record.WriteTo(path);
         return true;
     }
 
@@ -541,7 +590,7 @@ public static class ModInstaller
         {
             var id = Path.GetFileName(dir);
             if (id.StartsWith(".") || id.StartsWith("~")) continue;
-            var rec = ModRecord.Read(gameDir, id);
+            var rec = ReadRecordSkippingUnsafe(gameDir, id);
             if (rec == null) continue;
             var enabled = File.Exists(ModPaths.ModRecordPath(gameDir, id));
             byId[rec.Id] = new InstalledModInfo { Record = rec, Enabled = enabled };
@@ -601,7 +650,7 @@ public static class ModInstaller
             // INSIDE the record, so a folder whose name and record id disagree
             // would miss an id-set lookup and get reported as untracked as well
             // as installed. Same input, same question, one answer.
-            if (ModRecord.Read(gameDir, name) != null) continue;
+            if (ReadRecordSkippingUnsafe(gameDir, name) != null) continue;
             if (File.Exists(Path.Combine(dir, ModManagerConstants.RecordName)))
                 found.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = true });
             else if (File.Exists(Path.Combine(dir, ModManagerConstants.DisabledRecordName)))

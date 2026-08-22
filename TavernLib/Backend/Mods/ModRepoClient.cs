@@ -16,15 +16,12 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public class ModRepoClient
 {
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds) };
+    private static readonly HttpClient Http =
+        WindowsProxy.CreateHttpClient(TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds));
 
     // base URL -> (fetched_at, list<ModSummary>). Per-base so one slow/broken
     // repo doesn't invalidate the others' caches.
     private readonly Dictionary<string, (DateTime FetchedAt, List<ModSummary> Summaries)> _indexCache = new();
-
-    private static string Norm(string url) => (url ?? "").TrimEnd('/');
-
-    private static bool IsDefault(string url) => Norm(url) == Norm(ModManagerConstants.DefaultRepo);
 
     /// <summary>
     /// The one per-repo trust check before a URL is ever registered as a
@@ -35,7 +32,7 @@ public class ModRepoClient
     /// </summary>
     public static void ValidateRepoIndex(string url)
     {
-        var index = GetJson($"{Norm(url)}/repository.json");
+        var index = GetJson($"{ModManagerConstants.NormalizeUrl(url)}/repository.json");
         if (index["mods"] is not JObject)
             throw new ModManagerException(
                 "That URL didn't serve a valid mod index (no 'mods' object in repository.json). " +
@@ -65,11 +62,19 @@ public class ModRepoClient
     /// </summary>
     private List<ModSummary> FetchRepoIndex(string baseUrl, bool force)
     {
-        baseUrl = Norm(baseUrl);
+        baseUrl = ModManagerConstants.NormalizeUrl(baseUrl);
         var now = DateTime.UtcNow;
         if (!force && _indexCache.TryGetValue(baseUrl, out var hit) &&
             (now - hit.FetchedAt).TotalSeconds < ModManagerConstants.IndexTtlSeconds)
             return hit.Summaries;
+
+        // A repo that can't be used this time falls back to whatever it last
+        // served (past its TTL is still better than nothing), else nothing.
+        List<ModSummary> SkipWith(string reason)
+        {
+            TavernLogger.Warn($"skipping repo {baseUrl}: {reason}");
+            return _indexCache.TryGetValue(baseUrl, out var stale) ? stale.Summaries : new List<ModSummary>();
+        }
 
         JObject index;
         try
@@ -78,16 +83,12 @@ public class ModRepoClient
         }
         catch (ModManagerException e)
         {
-            TavernLogger.Warn($"skipping repo {baseUrl}: {e.Message}");
-            return _indexCache.TryGetValue(baseUrl, out var stale) ? stale.Summaries : new List<ModSummary>();
+            return SkipWith(e.Message);
         }
 
         var indexVersion = index["index_version"]?.Type == JTokenType.Integer ? (int)index["index_version"] : (int?)null;
         if (indexVersion != ModManagerConstants.SupportedIndexMajor)
-        {
-            TavernLogger.Warn($"index at {baseUrl} is index schema v{indexVersion}, this build supports v{ModManagerConstants.SupportedIndexMajor}, skipped.");
-            return _indexCache.TryGetValue(baseUrl, out var stale) ? stale.Summaries : new List<ModSummary>();
-        }
+            return SkipWith($"index schema v{indexVersion}, this build supports v{ModManagerConstants.SupportedIndexMajor}.");
 
         var outList = new List<ModSummary>();
         if (index["mods"] is JObject mods)
@@ -118,7 +119,7 @@ public class ModRepoClient
         var merged = new Dictionary<(string Id, int Major), (ModSummary Summary, bool FromDefault)>();
         foreach (var baseUrl in repoBases)
         {
-            var fromDefault = IsDefault(baseUrl);
+            var fromDefault = ModManagerConstants.IsDefaultRepo(baseUrl);
             foreach (var s in FetchRepoIndex(baseUrl, force))
             {
                 var key = (s.Id, s.Major);
@@ -145,7 +146,7 @@ public class ModRepoClient
         var order = new List<string>();
         if (!string.IsNullOrEmpty(preferRepo)) order.Add(preferRepo);
         foreach (var b in repoBases)
-            if (!order.Any(x => Norm(x) == Norm(b)))
+            if (!order.Any(x => ModManagerConstants.NormalizeUrl(x) == ModManagerConstants.NormalizeUrl(b)))
                 order.Add(b);
         return order;
     }
@@ -160,13 +161,17 @@ public class ModRepoClient
         var idx = modId.IndexOf('.');
         if (idx < 0)
             throw new ModManagerException($"Mod id '{modId}' isn't '<github-user>.<github-repo>'.");
-        var author = modId.Substring(0, idx);
-        var repo = modId.Substring(idx + 1);
+        // Both halves become path segments in the URL below, and a mod id
+        // arrives from an unreviewed index - so they get the same basename
+        // check the disk paths use, before a '..' or '/' can walk the request
+        // somewhere else on the host.
+        var author = ModPaths.SafeBasename(modId.Substring(0, idx));
+        var repo = ModPaths.SafeBasename(modId.Substring(idx + 1));
 
         Exception lastErr = null;
         foreach (var baseUrl in RepoOrder(repoBases, preferRepo))
         {
-            var url = $"{Norm(baseUrl)}/manifests/{author}/{repo}/{leaf}";
+            var url = $"{ModManagerConstants.NormalizeUrl(baseUrl)}/manifests/{author}/{repo}/{leaf}";
             JObject data;
             try
             {
@@ -177,7 +182,7 @@ public class ModRepoClient
                 lastErr = e;
                 continue;
             }
-            var m = ModManifest.FromJson(data, Norm(baseUrl));
+            var m = ModManifest.FromJson(data, ModManagerConstants.NormalizeUrl(baseUrl));
             if (m != null) return m;
         }
         throw new ModManagerException(

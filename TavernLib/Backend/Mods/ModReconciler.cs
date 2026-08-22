@@ -109,6 +109,30 @@ public static class ModReconciler
     }
 
     /// <summary>
+    /// The first damaged thing in an entry's installed closure, described, or
+    /// null when everything verifies. Checks the dependencies and the UserLibs
+    /// libraries their records pin, not just the root: a dependency is never
+    /// named in the mods list, so this is the only place its files are ever
+    /// re-checked - and `modmanager list` promises a damaged mod is reinstalled
+    /// at the next boot, which has to hold for them too.
+    /// </summary>
+    private static string FindDamage(string gameDir, string rootId, Dictionary<string, InstalledModInfo> installedById)
+    {
+        var closure = new HashSet<string>();
+        AddInstalledClosure(rootId, installedById, closure);
+        foreach (var id in closure.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            if (!installedById.TryGetValue(id, out var info)) continue;
+            if (ModInstaller.VerifyModFiles(gameDir, id) == false)
+                return $"'{id}' {info.Record.Version} is damaged";
+            foreach (var lib in info.Record.Libraries ?? new List<string>())
+                if (ModInstaller.VerifyLibrary(gameDir, lib) == false)
+                    return $"library '{lib}' (pinned by '{id}') is damaged";
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Brings one desired entry to its target version, and returns every id
     /// that entry accounts for - itself plus its whole dependency closure - so
     /// the caller's disable pass knows a dependency is wanted even though it's
@@ -143,11 +167,15 @@ public static class ModReconciler
             // false, and is left exactly alone; this only ever fires on real
             // evidence. The reinstall costs a download, which is why it's tested
             // second, after the cheap version comparison has already said no.
-            if (!needsInstall && ModInstaller.VerifyModFiles(gameDir, entry.Id) == false)
+            if (!needsInstall)
             {
-                TavernLogger.Warn($"mod reconcile: '{entry.Id}' {existing.Record.Version} is damaged "
-                                  + "- its files no longer match what was installed. Reinstalling it.");
-                needsInstall = true;
+                var damage = FindDamage(gameDir, entry.Id, installedById);
+                if (damage != null)
+                {
+                    TavernLogger.Warn($"mod reconcile: {damage} - files no longer match what was installed. "
+                                      + $"Reinstalling '{entry.Id}' and its dependencies.");
+                    needsInstall = true;
+                }
             }
 
             if (!needsInstall)

@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using Newtonsoft.Json;
+using TavernLib.Backend;
 
 namespace TavernLib.Backend.Mods;
 
@@ -74,10 +73,16 @@ public static class ModHandshake
         try
         {
             var path = Path.Combine(ModPaths.ModsBase(gameDir), entry.Name);
-            var writtenUtc = entry.Kind == UntrackedMod.KindFolder
-                ? new DirectoryInfo(path).LastWriteTimeUtc
-                : new FileInfo(path).LastWriteTimeUtc;
-            return new DateTimeOffset(writtenUtc, TimeSpan.Zero).ToUnixTimeSeconds()
+            // FileInfo/DirectoryInfo don't throw for a missing path - they
+            // return the 1601 epoch - so a mod that vanished between listing
+            // and stamping must be caught here explicitly, or this would stamp
+            // "-11644473600" where modmanager.py's os.stat raises and stamps
+            // "?", splitting the two fingerprints.
+            var info = entry.Kind == UntrackedMod.KindFolder
+                ? new DirectoryInfo(path)
+                : (FileSystemInfo)new FileInfo(path);
+            if (!info.Exists) return "?";
+            return new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero).ToUnixTimeSeconds()
                 .ToString(CultureInfo.InvariantCulture);
         }
         catch (Exception)
@@ -86,7 +91,44 @@ public static class ModHandshake
         }
     }
 
+    // Snapshot walks Mods/ and JSON-parses every record, and it's called from
+    // every ping, mods_list request, and join - all unauthenticated or hot
+    // paths. The mod set only changes at boot reconcile (which now finishes
+    // before the listener starts) or through console commands (which call
+    // Invalidate), so a short TTL plus explicit invalidation keeps answers
+    // fresh without paying the disk walk per request.
+    private const int CacheTtlSeconds = 5;
+    private static readonly object CacheLock = new();
+    private static string _cachedGameDir;
+    private static DateTime _cachedAtUtc;
+    private static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) _cached;
+
+    /// <summary>Drops the cached snapshot so the next request re-reads Mods/.
+    /// Call after anything that installs, removes, toggles, or repairs a mod.</summary>
+    public static void Invalidate()
+    {
+        lock (CacheLock) _cachedGameDir = null;
+    }
+
     public static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) Snapshot(string gameDir)
+    {
+        lock (CacheLock)
+        {
+            if (_cachedGameDir == gameDir && (DateTime.UtcNow - _cachedAtUtc).TotalSeconds < CacheTtlSeconds)
+                return _cached;
+        }
+
+        var snapshot = BuildSnapshot(gameDir);
+        lock (CacheLock)
+        {
+            _cachedGameDir = gameDir;
+            _cachedAtUtc = DateTime.UtcNow;
+            _cached = snapshot;
+        }
+        return snapshot;
+    }
+
+    private static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) BuildSnapshot(string gameDir)
     {
         var mods = ModInstaller.ListInstalledModsWithState(gameDir)
             .Where(m => m.Enabled)
@@ -105,7 +147,11 @@ public static class ModHandshake
 
         var untracked = ModInstaller.ListUntrackedMods(gameDir)
             .Where(u => u.Enabled)
-            .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
+            // Lowercase-then-ordinal, NOT OrdinalIgnoreCase: that compares
+            // upper-cased, which orders '_' and '[' the other side of the
+            // letters from modmanager.py's name.lower() sort, and these lines
+            // feed a hash the two implementations must agree on byte for byte.
+            .OrderBy(u => u.Name.ToLowerInvariant(), StringComparer.Ordinal)
             .Select(u => new UntrackedEntry { Name = u.Name, Kind = u.Kind })
             .ToList();
 
@@ -124,12 +170,7 @@ public static class ModHandshake
             .Select(m => $"{m.Id}@{m.Version}@{(m.ParityRequired ? "req" : "opt")}")
             .Concat(untracked.Select(u => $"untracked:{u.Name}@{UntrackedStamp(gameDir, u)}"));
         var fingerprint = string.Join("\n", lines);
-        string hash;
-        using (var sha = SHA256.Create())
-        {
-            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(fingerprint));
-            hash = BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
-        }
+        var hash = BackendUtils.HashDigest(fingerprint);
 
         // Count is MANAGED mods only, deliberately: it's sent in the pong so a
         // client can sanity-check its cached mods list without decoding

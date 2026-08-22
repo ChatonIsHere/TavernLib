@@ -64,6 +64,7 @@ public static class ModsCommandModule
             if (ModInstaller.UninstallMod(gameDir, id, remaining))
                 removedCount++;
         }
+        ModHandshake.Invalidate();
 
         return disabledIds.Count == 0
             ? "No disabled mods to clean up."
@@ -151,6 +152,7 @@ public static class ModsCommandModule
                 ? (disable ? ModInstaller.DisableMod(gameDir, match.Name) : ModInstaller.EnableMod(gameDir, match.Name))
                 : (disable ? ModInstaller.DisableUntrackedDll(gameDir, match.Name) : ModInstaller.EnableUntrackedDll(gameDir, match.Name));
             if (!ok) return $"Couldn't {verb} '{match.Name}' - it changed on disk just now; run `modmanager list` again.";
+            ModHandshake.Invalidate();
         }
         catch (ModManagerException e)
         {
@@ -172,16 +174,16 @@ public static class ModsCommandModule
     [Command("addrepo", "Registers a new pullable mod repo by its raw-content base URL (e.g. https://raw.githubusercontent.com/user/repo/main). Validates it serves a real mod index before adding it - this is the ONLY way a repo becomes pullable; naming it in a modlist's `repos` field is not enough.")]
     private static string AddRepo(string url)
     {
-        url = url.TrimEnd('/');
+        url = ModManagerConstants.NormalizeUrl(url);
         if (!url.StartsWith("http://") && !url.StartsWith("https://"))
             return "A repository URL must start with http:// or https://.";
 
         var config = LoadTrustedRepos();
         var shorthand = ModManagerConstants.RepoShorthand(url);
         if (shorthand == ModManagerConstants.RepoShorthand(ModManagerConstants.DefaultRepo) ||
-            config.LastRead.Repos.Values.Any(v => v.TrimEnd('/') == url))
+            config.LastRead.Repos.Values.Any(v => ModManagerConstants.NormalizeUrl(v) == url))
             return "That repository is already registered.";
-        if (config.LastRead.Repos.TryGetValue(shorthand, out var existingUrl) && existingUrl.TrimEnd('/') != url)
+        if (config.LastRead.Repos.TryGetValue(shorthand, out var existingUrl) && ModManagerConstants.NormalizeUrl(existingUrl) != url)
             return $"'{shorthand}' is already registered pointing at a different URL ({existingUrl}); remove it first if you want to repoint it.";
 
         try
@@ -207,7 +209,7 @@ public static class ModsCommandModule
 
         var config = LoadTrustedRepos();
         var removed = config.LastRead.Repos.Keys
-            .Where(k => k == reference || config.LastRead.Repos[k].TrimEnd('/') == reference.TrimEnd('/'))
+            .Where(k => k == reference || ModManagerConstants.NormalizeUrl(config.LastRead.Repos[k]) == ModManagerConstants.NormalizeUrl(reference))
             .ToList();
         if (removed.Count == 0) return $"No registered repo matches '{reference}'.";
 

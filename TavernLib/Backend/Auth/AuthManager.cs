@@ -117,7 +117,20 @@ internal class AuthManager
 
     private async Task WritePongResponse(Stream stream)
     {
-        var (modsHash, modsCount, _, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        string modsHash = null;
+        int? modsCount = null;
+        try
+        {
+            var snapshot = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+            modsHash = snapshot.Hash;
+            modsCount = snapshot.Count;
+        }
+        catch (Exception e)
+        {
+            // Still answer: a pong that never arrives reads as "server offline"
+            // in every launcher's list, which is worse than one without mod data.
+            TavernLogger.Error($"Couldn't snapshot Mods/ for a ping; answering without mod fields. {e}");
+        }
 
         var response = new AuthPayloads.PingResponse(
             _manager.ServerConfig.LastRead.Name,

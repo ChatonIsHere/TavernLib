@@ -13,6 +13,25 @@ namespace TavernLib.Backend.Mods;
 /// stable; it's read by both this installer and the Python launcher's
 /// modmanager.py (same on-disk convention, two implementations).
 /// </summary>
+/// <summary>Reads a JSON boolean and nothing else - no coercion from a string
+/// or a number, which Json.NET does by default. Used where the launcher's
+/// Python reader is equally strict and the two must agree on whether a record
+/// is readable at all.</summary>
+public class StrictBoolConverter : JsonConverter
+{
+    public override bool CanConvert(Type objectType) => objectType == typeof(bool);
+
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    {
+        if (reader.TokenType != JsonToken.Boolean)
+            throw new JsonSerializationException($"Expected a boolean, got {reader.TokenType}.");
+        return reader.Value;
+    }
+
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) =>
+        writer.WriteValue((bool)value);
+}
+
 public class ModRecord
 {
     [JsonProperty("manifest_version")] public int ManifestVersion { get; set; }
@@ -33,8 +52,15 @@ public class ModRecord
     /// mod counts as not installed. Assuming a value would be the one mistake
     /// that matters here, since it decides whether a joining client is obliged
     /// to match. Reading as not-installed is recoverable: the next reconcile
-    /// reinstalls it with a full record.</summary>
+    /// reinstalls it with a full record.
+    ///
+    /// Strictly a JSON boolean, via the converter below: Required.Always only
+    /// checks that the field is PRESENT, and Json.NET would otherwise read
+    /// "false" or 0 as a bool where modmanager.py's isinstance check rejects
+    /// both. The two implementations have to call the same record unreadable,
+    /// or they disagree about which mods a Mods/ folder even contains.</summary>
     [JsonProperty("parity_required", Required = Required.Always)]
+    [JsonConverter(typeof(StrictBoolConverter))]
     public bool ParityRequired { get; set; }
     [JsonProperty("dependencies")] public Dictionary<string, string> Dependencies { get; set; } = new();
     [JsonProperty("library_dependencies")] public List<LibraryRecordEntry> LibraryDependencies { get; set; } = new();
@@ -106,15 +132,27 @@ public class ModRecord
         File.WriteAllText(path, JsonConvert.SerializeObject(this, Formatting.Indented));
     }
 
+    private static readonly HashSet<string> WarnedUnreadable = new();
+
     private static ModRecord ReadFrom(string path)
     {
+        if (!File.Exists(path)) return null;
         try
         {
-            if (!File.Exists(path)) return null;
             return JsonConvert.DeserializeObject<ModRecord>(File.ReadAllText(path));
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            // Once per path, not per read - the listers run this on every
+            // snapshot. But never silently: an unreadable record drops its mod
+            // from the managed set (so parity stops being enforced for it) while
+            // MelonLoader goes on loading the folder, and an operator needs to
+            // be able to see why.
+            lock (WarnedUnreadable)
+            {
+                if (WarnedUnreadable.Add(path))
+                    TavernLogger.Warn($"mod record '{path}' can't be read ({e.Message}); treating the mod as not installed until reconcile rewrites it.");
+            }
             return null;
         }
     }
