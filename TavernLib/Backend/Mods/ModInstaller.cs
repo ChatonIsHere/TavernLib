@@ -330,6 +330,41 @@ public static class ModInstaller
         {
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
         }
+        DisableShadowedLooseDlls(gameDir, mod.Id, modDir);
+    }
+
+    /// <summary>
+    /// A loose root Mods/&lt;name&gt;.dll with the same filename as a DLL this
+    /// install just placed is an earlier hand-installed copy of the same mod -
+    /// upstream TavernLauncher 1.8.5 drops TavernEssentials.dll there, for one -
+    /// and MelonLoader would load both. Disabled rather than deleted, by the same
+    /// rename as <see cref="DisableUntrackedDll"/>, so it can be turned back on.
+    ///
+    /// Runs after the install has landed, and never fails it: a loose copy that
+    /// can't be renamed is reported and left alone. Counterpart of
+    /// install.py's _disable_shadowed_loose_dlls, so both sides report the
+    /// same untracked set afterwards.
+    /// </summary>
+    private static void DisableShadowedLooseDlls(string gameDir, string modId, string modDir)
+    {
+        var names = Directory.GetFiles(modDir)
+            .Select(Path.GetFileName)
+            .Where(n => n.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(n => n, StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            try
+            {
+                if (DisableUntrackedDll(gameDir, name))
+                    TavernLogger.Warn($"mod install: Mods/{name} was a loose copy of a DLL that {modId} just installed; "
+                        + "disabled it so MelonLoader doesn't load it twice. `modmanager enable` brings it back.");
+            }
+            catch (ModManagerException e)
+            {
+                TavernLogger.Warn($"mod install: Mods/{name} looks like a loose copy of {modId}, but couldn't be "
+                    + $"disabled ({e.Message}); MelonLoader may load it twice until it's removed.");
+            }
+        }
     }
 
     /// <summary>
