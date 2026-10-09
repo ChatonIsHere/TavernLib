@@ -69,8 +69,10 @@ public static class PlayerJoinFilter
             var id = ulong.Parse(token.Claims.FirstOrDefault(claim => claim.Type == "UserId")?.Value ?? "0");
             var username = token.Claims.FirstOrDefault(claim => claim.Type == "Username")?.Value ?? "";
 
-            var users = TavernServices.GetService<TavernManager>().UserConfig.LastRead.Users;
-            if (users.TryGetValue(username.ToLowerInvariant(), out var user) && user.UserId == id && user.Token == tavernToken) return true;
+            var userConfig = TavernServices.GetService<TavernManager>().UserConfig;
+            userConfig.ReadFromFile();
+            var users = userConfig.LastRead.Users;
+            if (users.TryGetValue(username.ToLowerInvariant(), out var user) && user.UserId == id && !string.IsNullOrEmpty(user.Token) && user.Token == tavernToken) return true;
 
             await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, "Data mismatch or account not found");
             return false;
@@ -167,6 +169,7 @@ public static class PlayerJoinFilter
                 
                 var username = token.Claims.FirstOrDefault(c => c.Type == "Username")?.Value ?? "";
                 var users = TavernServices.GetService<TavernManager>().UserConfig;
+                users.ReadFromFile(); // see FilterInvalidTokens for why this can't be skipped
                 
                 if (users.TryGetUser(username, out var user) && user.CanEnterFlyMode)
                 {

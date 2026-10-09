@@ -14,13 +14,15 @@ using TavernLib.Patches;
 using TavernLib.Services;
 
 
-[assembly: MelonInfo(typeof(TavernLib.Tavern), "TavernLib", "v1.4.2", "Tavern Team", "https://github.com/ModdingTavern/TavernLib")]
+[assembly: MelonInfo(typeof(TavernLib.Tavern), "TavernLib", "1.5.3", "Tavern Team", "https://github.com/ModdingTavern/TavernLib")]
 namespace TavernLib;
 
 public class Tavern : MelonPlugin
 {
     internal static MelonLogger.Instance Logger { get; private set; }
-    public const string Version = "1.5.0";
+    public const string Version = "1.5.3";
+
+    private System.Threading.Timer _logArchiveTimer;
 
 
     public override void OnEarlyInitializeMelon()
@@ -47,7 +49,32 @@ public class Tavern : MelonPlugin
         
         _ = new Hook(findObjectsMethod, selectionFixMethod);
     }
-    
+
+    private bool _didInitialLogArchive;
+
+    private void StartLogArchiveTimer()
+    {
+        _logArchiveTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                if (!_didInitialLogArchive)
+                {
+                    _didInitialLogArchive = true;
+                    LogArchiver.ArchiveLogNow();
+                }
+                else if (LogArchiver.ShouldAutoArchive())
+                {
+                    LogArchiver.ArchiveLogNow();
+                }
+            }
+            catch (Exception e)
+            {
+                TavernLogger.Error($"Log archive check failed: {e}");
+            }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(60));
+    }
+
     private void SetupServices()
     {
         try
@@ -78,6 +105,12 @@ public class Tavern : MelonPlugin
                     ReconcileMods(modListArgs[0]);
                 else if (isLauncherManaged && CommandLineArguments.Contains(TavernArgs.ModsListFile))
                     TavernLogger.Warn("mod reconcile: /modlist was passed but this server is launcher-managed (/launcherauth present); native mod reconciliation only runs for a genuinely headless server, so it was skipped. The launcher's own mod manager manages Mods/ for this server instead.");
+
+                // After reconcile, not before: the timer's first tick archives
+                // 10s later and gives up for good if NLog's unity-log target
+                // isn't up yet, so a reconcile that runs for minutes would
+                // silently cost us the boot-time archive.
+                if (!isLauncherManaged) StartLogArchiveTimer();
 
                 TavernServices.AddService(new TavernManager());
             }
