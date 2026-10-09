@@ -212,7 +212,7 @@ internal class AuthManager
 
         TavernLogger.Msg("Writing any potential changes during join to file");
         _manager.UserConfig.WriteToFile();
-        await WriteResponse(stream, new AuthPayloads.AuthenticateOk(userData.UserId, _manager.ServerConfig.LastRead.QuestScene));
+        await WriteResponse(stream, new AuthPayloads.AuthenticateOk(userData.UserId, _manager.ServerConfig.LastRead.QuestScene, _manager.ServerConfig.LastRead.TutorialScene));
     }
 
     private async Task<bool> CheckIfPermitted(string joinerIp, AuthPayloads.AuthenticateRequest payload, Stream stream)
@@ -236,7 +236,7 @@ internal class AuthManager
         if (_manager.UserConfig.LastRead.Blacklist.Ips.Count > 0 || _manager.UserConfig.LastRead.Blacklist.Usernames.Count > 0)
         {
             var ipBlocked = _manager.UserConfig.LastRead.Blacklist.Ips.Contains(joinerIp);
-            var nameBlocked = _manager.UserConfig.LastRead.Blacklist.Usernames.Contains(payload.Username);
+            var nameBlocked = _manager.UserConfig.LastRead.Blacklist.Usernames.Any(u => string.Equals(u, payload.Username, StringComparison.OrdinalIgnoreCase));
 
             if (ipBlocked || nameBlocked)
             {
@@ -268,7 +268,7 @@ internal class AuthManager
         // IP limit
         if (_manager.ServerConfig.LastRead.EnforceIpLimit)
         {
-            var matchingIpCount = _manager.UserConfig.LastRead.Users.Select(user => user.Value.RegisteredFrom == joinerIp).Count();
+            var matchingIpCount = _manager.UserConfig.LastRead.Users.Count(user => user.Value.RegisteredFrom == joinerIp);
             if (matchingIpCount > 4)
             {
                 await WriteResponse(stream, new AuthPayloads.GenericFail("Too many accounts with same origin"));

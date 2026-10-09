@@ -55,6 +55,12 @@ public static class ModParity
     /// never checked here - the client's own extra client-only mods are its own
     /// business. Returns the mods the client is missing or holding at the wrong
     /// version; empty means parity holds.
+    ///
+    /// An enforced mod whose record carries no version always mismatches. Left
+    /// to the plain comparison, a client without the mod would hold "no
+    /// version" too and match it - the same empty-equals-empty hole upstream
+    /// closed for tokens in PlayerJoinFilter. The client launcher's
+    /// _verify_mod_parity applies the same rule.
     /// </summary>
     public static List<RequiredMod> ValidateClient(List<ModHandshake.Entry> serverMods, Dictionary<string, string> clientMods)
     {
@@ -62,7 +68,7 @@ public static class ModParity
         foreach (var mod in serverMods.Where(IsEnforced))
         {
             clientMods.TryGetValue(mod.Id, out var have);
-            if (have != mod.Version)
+            if (string.IsNullOrEmpty(mod.Version) || have != mod.Version)
                 mismatches.Add(new RequiredMod { Id = mod.Id, Version = mod.Version, SourceRepo = mod.SourceRepo });
         }
         return mismatches;
