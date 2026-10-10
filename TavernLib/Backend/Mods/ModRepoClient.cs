@@ -51,7 +51,7 @@ public class ModRepoClient
         }
         catch (Exception e)
         {
-            throw new ModManagerException($"Couldn't fetch {url}: {e.Message}");
+            throw new ModManagerException($"Couldn't fetch {url}: {ModManagerException.Describe(e)}");
         }
     }
 
