@@ -66,6 +66,37 @@ public static class ModParityField
 }
 
 /// <summary>
+/// The optional "scenes" field: which of the normal/quest/tutorial scenes a mod
+/// works in. Null - absent, or JSON null - means every scene, which is what every
+/// mod published before the field existed gets. Counterpart of manifest.py's
+/// mod_scenes, with the same rules: a present value must be a non-empty list of
+/// non-empty strings, and names this build doesn't know are kept rather than
+/// refused, so a scene added later doesn't make the whole manifest unreadable.
+/// </summary>
+public static class ModScenesField
+{
+    public const string Name = "scenes";
+    public static readonly string[] Known = ["normal", "quest", "tutorial"];
+
+    public static List<string> Read(JToken value, string idForMsg)
+    {
+        if (value == null || value.Type == JTokenType.Null) return null;
+        if (value is not JArray array || array.Count == 0
+            || array.Any(t => t.Type != JTokenType.String || string.IsNullOrEmpty((string)t)))
+            throw new ModManagerException(
+                $"'{idForMsg}' has a {Name} value of {value.ToString(Newtonsoft.Json.Formatting.None)}. Leave it out "
+                + "for a mod that works in every scene, or list the ones it works in, out of "
+                + string.Join(", ", Known) + ".");
+        return array.Select(t => (string)t).Distinct().ToList();
+    }
+
+    /// <summary>Whether a mod with these scenes works in scene. An unknown scene
+    /// (null) never rules a mod out.</summary>
+    public static bool RunsIn(List<string> scenes, string scene) =>
+        scenes == null || scene == null || scenes.Contains(scene);
+}
+
+/// <summary>
 /// The full per-version manifest, fetched on demand from
 /// manifests/&lt;author&gt;/&lt;repo&gt;/&lt;version&gt;.json (or a latest*.json pointer).
 /// </summary>
@@ -86,6 +117,8 @@ public class ModManifest
     public string Sha256 { get; set; }
     public string SourceRepo { get; set; }
     public string Package { get; set; } = "dll";
+    /// <summary>See <see cref="ModScenesField"/>; null means every scene.</summary>
+    public List<string> Scenes { get; set; }
 
     /// <summary>
     /// The basename this mod's single .dll lands under in Mods/&lt;id&gt;/, taken from
@@ -183,6 +216,7 @@ public class ModManifest
                 Sha256 = ((string)d["sha256"]).ToLowerInvariant(),
                 SourceRepo = sourceRepo,
                 Package = package,
+                Scenes = ModScenesField.Read(d[ModScenesField.Name], idForMsg),
             };
         }
         catch (ModManagerException)
@@ -218,6 +252,8 @@ public class ModSummary
     public bool ParityRequired { get; set; }
     public List<string> Versions { get; set; } = new();
     public string SourceRepo { get; set; }
+    /// <summary>The highest release's; null means every scene.</summary>
+    public List<string> Scenes { get; set; }
 
     public string Highest() => Versions.OrderByDescending(ModVersion.Parse).First();
     public int Major => ModVersion.Parse(Highest()).Major;
@@ -254,6 +290,19 @@ public class ModSummary
             return null;
         }
 
+        List<string> scenes;
+        try
+        {
+            scenes = ModScenesField.Read(d[ModScenesField.Name], modId);
+        }
+        catch (ModManagerException e)
+        {
+            // Display-only here (installs read the manifest's own), so a bad
+            // value costs the tag, not the mod.
+            TavernLogger.Warn($"index entry for {modId}: {e.Message} Treated as working in every scene.");
+            scenes = null;
+        }
+
         return new ModSummary
         {
             Id = modId,
@@ -265,6 +314,7 @@ public class ModSummary
             ParityRequired = parityRequired,
             Versions = versions,
             SourceRepo = sourceRepo,
+            Scenes = scenes,
         };
     }
 }
