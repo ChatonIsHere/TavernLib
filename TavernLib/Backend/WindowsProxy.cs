@@ -10,11 +10,11 @@ public static class WindowsProxy
 {
     private const string InternetSettingsKey = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
 
-    /// <summary>An HttpClient that honours the system proxy. Every outbound
-    /// call this plugin makes goes through here: on a host behind a WinINet
-    /// proxy - the case CreateSystemProxy exists for - a bare HttpClient
-    /// silently fails, so the mod repo fetches and downloads must not build
-    /// their own.</summary>
+    /// <summary>An HttpClient that honours the system proxy. Every HttpClient
+    /// this plugin makes comes from here: on a host behind a WinINet proxy - the
+    /// case CreateSystemProxy exists for - a bare HttpClient silently fails. The
+    /// mod manager's repo fetches and downloads don't use HttpClient at all; they
+    /// go through <see cref="NativeHttp"/>, which handles the proxy itself.</summary>
     public static HttpClient CreateHttpClient(TimeSpan timeout)
     {
         var handler = new HttpClientHandler();

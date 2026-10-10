@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Threading;
 using Newtonsoft.Json.Linq;
 using TavernLib;
 
@@ -16,9 +14,6 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public class ModRepoClient
 {
-    private static readonly HttpClient Http =
-        WindowsProxy.CreateHttpClient(TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds));
-
     // base URL -> (fetched_at, list<ModSummary>). Per-base so one slow/broken
     // repo doesn't invalidate the others' caches.
     private readonly Dictionary<string, (DateTime FetchedAt, List<ModSummary> Summaries)> _indexCache = new();
@@ -43,10 +38,9 @@ public class ModRepoClient
     {
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds));
-            var response = Http.GetAsync(url, cts.Token).GetAwaiter().GetResult();
-            response.EnsureSuccessStatusCode();
-            var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            // NativeHttp, not HttpClient: this runs before Unity's TLS provider
+            // exists, when Mono can't complete an HTTPS handshake (see NativeHttp).
+            var body = NativeHttp.GetString(url, TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds));
             return JObject.Parse(body);
         }
         catch (Exception e)

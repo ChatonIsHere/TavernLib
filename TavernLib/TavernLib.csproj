@@ -213,6 +213,8 @@
     <Compile Include="Backend\BackendUtils.cs" />
     <Compile Include="Backend\TavernMessages.cs" />
     <Compile Include="Backend\EntranceMessageHandler.cs" />
+    <Compile Include="Backend\Mods\MelonModFolders.cs" />
+    <Compile Include="Backend\NativeHttp.cs" />
     <Compile Include="Backend\WindowsProxy.cs" />
     <Compile Include="Debugging\LogArchiver.cs" />
     <Compile Include="ModdingApi\TavernModAttribute.cs" />

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net.Http;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -18,9 +17,6 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModInstaller
 {
-    private static readonly HttpClient DownloadHttp =
-        WindowsProxy.CreateHttpClient(TimeSpan.FromSeconds(ModManagerConstants.DownloadTimeoutSeconds));
-
     private static string Sha256File(string path)
     {
         using var sha = SHA256.Create();
@@ -32,26 +28,20 @@ public static class ModInstaller
     /// <summary>
     /// Streams url to destPath, checking the shared reconcile deadline as it
     /// goes so one slow/stalled transfer can't blow past the whole pass's
-    /// wall-clock cap. Throws (and leaves nothing at destPath) on failure.
+    /// wall-clock cap. Throws on failure; the caller deletes the partial file.
+    /// Goes through NativeHttp rather than HttpClient: this runs before Unity's
+    /// TLS provider exists, when Mono can't complete an HTTPS handshake.
     /// </summary>
     private static void DownloadFile(string url, string destPath, DateTime deadlineUtc)
     {
         try
         {
-            var secondsLeft = Math.Max(1, (deadlineUtc - DateTime.UtcNow).TotalSeconds);
-            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(secondsLeft));
-            using var response = DownloadHttp.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token).GetAwaiter().GetResult();
-            response.EnsureSuccessStatusCode();
-            using var input = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
             using var output = File.Create(destPath);
-            var buffer = new byte[1 << 16];
-            int read;
-            while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                if (DateTime.UtcNow > deadlineUtc)
-                    throw new ModManagerException($"Download of {url} exceeded the reconcile pass's time budget; giving up.");
-                output.Write(buffer, 0, read);
-            }
+            NativeHttp.Download(url, output, deadlineUtc, TimeSpan.FromSeconds(ModManagerConstants.DownloadTimeoutSeconds));
+        }
+        catch (TimeoutException)
+        {
+            throw new ModManagerException($"Download of {url} exceeded the reconcile pass's time budget; giving up.");
         }
         catch (Exception e) when (e is not ModManagerException)
         {

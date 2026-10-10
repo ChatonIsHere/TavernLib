@@ -127,10 +127,12 @@ public class Tavern : MelonPlugin
 
     /// <summary>
     /// Native (C#) mod install/update/disable for a genuinely headless server,
-    /// run synchronously before this method returns - MelonLoader doesn't scan
+    /// run synchronously before this method returns - MelonLoader doesn't load
     /// Mods/ until later in startup (Core.Initialize -> LoadMelons(Plugins),
-    /// this hook, before Core.Start -> LoadMelons(Mods)), so whatever's on disk
-    /// once this returns is what loads this session. Only reached when both
+    /// this hook, before Core.Start -> LoadMelons(Mods)). It has already listed
+    /// the Mods/ subfolders by then, though, so MelonModFolders.Sync updates that
+    /// list afterwards; with it, whatever's on disk once this returns is what
+    /// loads this session. Only reached when both
     /// /launcherauth is absent (see SetupServices) and TavernArgs.ModsListFile
     /// is passed; a launcher-run server manages its own Mods/ via Python and
     /// is never routed here even if /modlist were passed to it.
@@ -164,6 +166,7 @@ public class Tavern : MelonPlugin
             trustedRepos.ReadFromFile();
 
             ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead);
+            MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
         }
         catch (Exception e)
         {
