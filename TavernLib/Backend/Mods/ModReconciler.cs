@@ -30,7 +30,10 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModReconciler
 {
-    public static void Reconcile(string gameDir, ModsList modsList, TrustedRepos trustedRepos)
+    /// <param name="scene">The scene this server runs ("normal", "quest" or
+    /// "tutorial"); a listed mod whose manifest says it doesn't work there is
+    /// skipped, and disabled if installed. Null checks nothing.</param>
+    public static void Reconcile(string gameDir, ModsList modsList, TrustedRepos trustedRepos, string scene = null)
     {
         var deadline = DateTime.UtcNow.AddSeconds(ModManagerConstants.ReconcileMaxSeconds);
         var repos = trustedRepos.EffectiveRepoUrls();
@@ -57,6 +60,9 @@ public static class ModReconciler
         // off the mods list alone would disable every dependency on the next
         // boot and silently break the mod that pulled it in.
         var keepIds = new HashSet<string>();
+        // Listed, but left out for this server's scene - so the disable pass
+        // can say why, rather than calling them unlisted.
+        var sceneSkipped = new HashSet<string>();
 
         for (var i = 0; i < desiredEntries.Count; i++)
         {
@@ -67,10 +73,17 @@ public static class ModReconciler
                 // Anything not reached this pass keeps whatever it has on disk,
                 // closure included, rather than being disabled as unwanted.
                 for (var j = i; j < desiredEntries.Count; j++)
-                    AddInstalledClosure(desiredEntries[j].Id, installedById, keepIds);
+                {
+                    var id = desiredEntries[j].Id;
+                    if (installedById.TryGetValue(id, out var left) && !ModScenesField.RunsIn(left.Record.Scenes, scene))
+                        sceneSkipped.Add(id);
+                    else
+                        AddInstalledClosure(id, installedById, keepIds);
+                }
                 break;
             }
-            keepIds.UnionWith(ReconcileOne(gameDir, entry, repos, index, client, installedById, deadline));
+            keepIds.UnionWith(ReconcileOne(gameDir, entry, repos, index, client, installedById, deadline,
+                scene, sceneSkipped));
         }
 
         // Re-enable anything in the keep set that's on disk but disabled, such
@@ -87,7 +100,10 @@ public static class ModReconciler
             if (keepIds.Contains(info.Record.Id)) continue;
             if (!info.Enabled) continue;
             if (ModInstaller.DisableMod(gameDir, info.Record.Id))
-                TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' (no longer in the configured mods list).");
+                TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' ("
+                    + (sceneSkipped.Contains(info.Record.Id)
+                        ? $"it doesn't work in the {scene} scene this server runs"
+                        : "no longer in the configured mods list") + ").");
         }
     }
 
@@ -146,7 +162,8 @@ public static class ModReconciler
     /// </summary>
     private static HashSet<string> ReconcileOne(
         string gameDir, ModsListEntry entry, List<string> repos, List<ModSummary> index,
-        ModRepoClient client, Dictionary<string, InstalledModInfo> installedById, DateTime deadline)
+        ModRepoClient client, Dictionary<string, InstalledModInfo> installedById, DateTime deadline,
+        string scene, HashSet<string> sceneSkipped)
     {
         var keep = new HashSet<string>();
         var existing = installedById.GetValueOrDefault(entry.Id);
@@ -155,6 +172,18 @@ public static class ModReconciler
             var target = entry.PinnedVersion != null
                 ? client.FetchManifest(repos, entry.Id, entry.PinnedVersion)
                 : client.ResolveModById(repos, entry.Id);
+
+            // Skipped, not refused: a headless server has nobody to ask, and
+            // booting without the mod beats booting a mod into a scene its
+            // author says it breaks in. Returning nothing to keep means the
+            // disable pass switches off an installed copy too.
+            if (!ModScenesField.RunsIn(target.Scenes, scene))
+            {
+                TavernLogger.Warn($"mod reconcile: '{entry.Id}' {target.Version} works in the "
+                    + $"{ScenesText(target.Scenes)} scene(s), not the {scene} scene this server runs; skipped.");
+                sceneSkipped.Add(entry.Id);
+                return keep;
+            }
 
             var needsInstall = existing == null || existing.Record.Version != target.Version;
 
@@ -188,7 +217,8 @@ public static class ModReconciler
                 // forever on the strength of a stale record.
                 if (ModInstaller.RefreshRecordMetadata(gameDir, target))
                     TavernLogger.Msg($"mod reconcile: refreshed '{entry.Id}' record metadata "
-                                     + $"(parity_required now {target.ParityRequired}).");
+                                     + $"(parity_required now {target.ParityRequired}, scenes now "
+                                     + (target.Scenes == null ? "all" : string.Join(", ", target.Scenes)) + ").");
 
                 // Already at the target version, so its dependencies are already
                 // on disk and their records name the whole closure - no fetching.
@@ -224,6 +254,13 @@ public static class ModReconciler
         }
         catch (Exception e)
         {
+            // The installed record still knows its scenes, so an unreachable
+            // repo can't let back in a mod this server's scene rules out.
+            if (existing != null && !ModScenesField.RunsIn(existing.Record.Scenes, scene))
+            {
+                sceneSkipped.Add(entry.Id);
+                return keep;
+            }
             if (existing != null)
                 TavernLogger.Warn($"mod reconcile: couldn't resolve/update '{entry.Id}' ({e.Message}); keeping the installed {existing.Record.Version}.");
             else
@@ -234,4 +271,6 @@ public static class ModReconciler
             return keep;
         }
     }
+
+    private static string ScenesText(List<string> scenes) => string.Join(", ", scenes);
 }

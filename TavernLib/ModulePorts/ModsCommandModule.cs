@@ -96,7 +96,8 @@ public static class ModsCommandModule
         var lines = installed
             .OrderBy(m => m.Record.Id, StringComparer.OrdinalIgnoreCase)
             .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)}"
-                         + (damaged.Contains(m.Record.Id) ? " [DAMAGED]" : ""))
+                         + (damaged.Contains(m.Record.Id) ? " [DAMAGED]" : "")
+                         + (m.Record.Scenes != null ? $" [scenes: {string.Join(", ", m.Record.Scenes)}]" : ""))
             .Concat(untracked
                 .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(u => $"{u.Name} - {State(u.Enabled)} [untracked {u.Kind}]"));

@@ -165,7 +165,8 @@ public class Tavern : MelonPlugin
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
 
-            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead);
+            ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead,
+                SceneIndexPatches.ForcedSceneName());
             MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
         }
         catch (Exception e)

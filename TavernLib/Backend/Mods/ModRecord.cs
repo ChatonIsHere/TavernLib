@@ -74,6 +74,13 @@ public class ModRecord
     /// another installed mod still lists stays put.</summary>
     [JsonProperty("libraries")] public List<string> Libraries { get; set; } = new();
 
+    /// <summary>The scenes this mod works in (see <see cref="ModScenesField"/>).
+    /// Omitted when null, meaning every scene - the same as the launcher's
+    /// record, and what every record written before the field existed already
+    /// says. Like Files, kept out of the handshake fingerprint.</summary>
+    [JsonProperty("scenes", NullValueHandling = NullValueHandling.Ignore)]
+    public List<string> Scenes { get; set; }
+
     /// <summary>{relative path (forward slashes): sha256} for everything the
     /// installer assembled into this mod's folder, hashed out of staging right
     /// before this record was written into it (so the record is never part of
@@ -125,6 +132,7 @@ public class ModRecord
         Libraries = (mod.LibraryDependencies ?? new List<LibraryDependency>())
             .Select(l => ModPaths.SafeBasename(l.Filename))
             .ToList(),
+        Scenes = mod.Scenes?.ToList(),
     };
 
     public void WriteTo(string path)

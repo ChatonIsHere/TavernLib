@@ -585,9 +585,12 @@ public static class ModInstaller
         var record = JsonConvert.DeserializeObject<ModRecord>(File.ReadAllText(path));
         if (record == null || record.Id != manifest.Id) return false;
 
-        if (record.ParityRequired == manifest.ParityRequired) return false;
+        var scenesSame = (record.Scenes == null && manifest.Scenes == null)
+            || (record.Scenes != null && manifest.Scenes != null && record.Scenes.SequenceEqual(manifest.Scenes));
+        if (record.ParityRequired == manifest.ParityRequired && scenesSame) return false;
 
         record.ParityRequired = manifest.ParityRequired;
+        record.Scenes = manifest.Scenes?.ToList();
         record.WriteTo(path);
         return true;
     }

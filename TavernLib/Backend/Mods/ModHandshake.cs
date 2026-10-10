@@ -53,6 +53,12 @@ public static class ModHandshake
         /// and this lets the client's launcher at least say so. Empty when
         /// the record predates the field.</summary>
         [JsonProperty("sha256")] public string Sha256 { get; set; }
+
+        /// <summary>The scenes the mod works in, off the record; omitted when
+        /// null (every scene), as the launcher's entry omits it. Informational,
+        /// and like Sha256 kept out of the fingerprint.</summary>
+        [JsonProperty("scenes", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> Scenes { get; set; }
     }
 
     /// <summary>
@@ -141,7 +147,8 @@ public static class ModHandshake
                 ServerSide = m.Record.ServerSide,
                 ParityRequired = m.Record.ParityRequired,
                 SourceRepo = m.Record.SourceRepo,
-                Sha256 = m.Record.Sha256 ?? ""
+                Sha256 = m.Record.Sha256 ?? "",
+                Scenes = m.Record.Scenes
             })
             .ToList();
 
