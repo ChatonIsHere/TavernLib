@@ -55,7 +55,7 @@ public static class ModInstaller
         }
         catch (Exception e) when (e is not ModManagerException)
         {
-            throw new ModManagerException($"Couldn't download {url}: {e.Message}");
+            throw new ModManagerException($"Couldn't download {url}: {ModManagerException.Describe(e)}");
         }
     }
 
