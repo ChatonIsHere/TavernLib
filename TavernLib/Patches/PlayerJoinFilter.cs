@@ -102,10 +102,6 @@ public static class PlayerJoinFilter
         Dictionary<string, string> clientMods;
         try
         {
-            using var readingStream = stream.Clone() as Stream;
-            var requestJoinMessage = new RequestJoinMessage();
-            requestJoinMessage.Serialize(connection, readingStream);
-
             // Managed mods only, and the untracked list is discarded here on
             // purpose: this decides whether to REFUSE a join, and an untracked mod
             // has no id or version a client could ever be asked to match. A server
@@ -116,6 +112,10 @@ public static class PlayerJoinFilter
             // parity-required. A server running only recommended client mods can't
             // reject anyone over them, so it shouldn't read the claim at all.
             if (!serverMods.Any(ModParity.IsEnforced)) return true;
+
+            using var readingStream = stream.Clone() as Stream;
+            var requestJoinMessage = new RequestJoinMessage();
+            requestJoinMessage.Serialize(connection, readingStream);
 
             var token = JWTUtility.CreateFromString(requestJoinMessage.UserCredentials, true);
             var modsClaim = token.Claims.FirstOrDefault(claim => claim.Type == "TavernMods")?.Value;
