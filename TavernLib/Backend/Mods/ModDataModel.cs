@@ -243,20 +243,11 @@ public class ModManifest
 /// </summary>
 public class ModSummary
 {
-    public string Id { get; set; }
-    public string Name { get; set; }
-    public string Author { get; set; }
-    public string Description { get; set; }
-    public bool ClientSide { get; set; }
-    public bool ServerSide { get; set; }
-    public bool ParityRequired { get; set; }
-    public List<string> Versions { get; set; } = new();
-    public string SourceRepo { get; set; }
-    /// <summary>The highest release's; null means every scene.</summary>
-    public List<string> Scenes { get; set; }
-
-    public string Highest() => Versions.OrderByDescending(ModVersion.Parse).First();
-    public int Major => ModVersion.Parse(Highest()).Major;
+    public string Id { get; private set; }
+    public List<string> Versions { get; private set; }
+    public string SourceRepo { get; private set; }
+    public ModVersion Highest { get; private set; }
+    public int Major => Highest.Major;
 
     public static ModSummary FromJson(JObject d, string modId, string sourceRepo)
     {
@@ -267,20 +258,23 @@ public class ModSummary
         }
 
         var versions = new List<string>();
+        ModVersion? highest = null;
         foreach (var v in raw)
         {
             var s = v.ToString();
-            if (ModVersion.TryParse(s, out _))
+            if (ModVersion.TryParse(s, out var parsed))
+            {
                 versions.Add(s);
+                if (highest == null || parsed > highest.Value) highest = parsed;
+            }
             else
                 TavernLogger.Warn($"index entry for {modId} lists a bad version '{s}', ignored.");
         }
-        if (versions.Count == 0) return null;
+        if (highest == null) return null;
 
-        bool parityRequired;
         try
         {
-            parityRequired = ModParityField.Read(d[ModParityField.Name], modId);
+            ModParityField.Read(d[ModParityField.Name], modId);
         }
         catch (ModManagerException)
         {
@@ -290,31 +284,6 @@ public class ModSummary
             return null;
         }
 
-        List<string> scenes;
-        try
-        {
-            scenes = ModScenesField.Read(d[ModScenesField.Name], modId);
-        }
-        catch (ModManagerException e)
-        {
-            // Display-only here (installs read the manifest's own), so a bad
-            // value costs the tag, not the mod.
-            TavernLogger.Warn($"index entry for {modId}: {e.Message} Treated as working in every scene.");
-            scenes = null;
-        }
-
-        return new ModSummary
-        {
-            Id = modId,
-            Name = (string)d["name"] ?? modId,
-            Author = (string)d["author"] ?? modId.Split('.')[0],
-            Description = (string)d["description"] ?? "",
-            ClientSide = (bool?)d["client_side"] ?? false,
-            ServerSide = (bool?)d["server_side"] ?? false,
-            ParityRequired = parityRequired,
-            Versions = versions,
-            SourceRepo = sourceRepo,
-            Scenes = scenes,
-        };
+        return new ModSummary { Id = modId, Versions = versions, SourceRepo = sourceRepo, Highest = highest.Value };
     }
 }
