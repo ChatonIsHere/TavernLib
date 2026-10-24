@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -128,7 +129,12 @@ public class ModRecord
         if (!File.Exists(path)) return null;
         try
         {
-            using var reader = new JsonTextReader(new StringReader(File.ReadAllText(path))) { DateParseHandling = DateParseHandling.None };
+            // Strict UTF-8 with no BOM, as install.py's open(encoding="utf-8")
+            // + json.load reads it; File.ReadAllText would accept either.
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return null;
+            var text = new UTF8Encoding(false, true).GetString(bytes);
+            using var reader = new JsonTextReader(new StringReader(text)) { DateParseHandling = DateParseHandling.None };
             var token = JToken.ReadFrom(reader);
             return reader.Read() ? null : token as JObject;
         }
