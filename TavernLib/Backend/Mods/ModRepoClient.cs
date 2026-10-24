@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TavernLib;
 
@@ -30,7 +32,12 @@ public class ModRepoClient(NativeHttp http)
         {
             var body = http.GetString(url, TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds),
                 ModManagerConstants.MaxJsonBytes);
-            return JObject.Parse(body);
+            // No date parsing: a date-like description must reach the record as
+            // the same string install.py writes.
+            using var reader = new JsonTextReader(new StringReader(body)) { DateParseHandling = DateParseHandling.None };
+            var obj = JObject.Load(reader);
+            if (reader.Read()) throw new JsonReaderException("Additional text after the JSON object.");
+            return obj;
         }
         catch (Exception e)
         {
