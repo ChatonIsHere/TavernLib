@@ -91,19 +91,33 @@ public static class ModReconciler
         // list. A no-op for anything already enabled or not installed at all.
         foreach (var id in keepIds)
         {
-            if (ModInstaller.EnableMod(gameDir, id))
-                TavernLogger.Msg($"mod reconcile: re-enabled '{id}'.");
+            try
+            {
+                if (ModInstaller.EnableMod(gameDir, id))
+                    TavernLogger.Msg($"mod reconcile: re-enabled '{id}'.");
+            }
+            catch (Exception e)
+            {
+                TavernLogger.Warn($"mod reconcile: couldn't re-enable '{id}' ({e.Message}); leaving it as it is.");
+            }
         }
 
         foreach (var info in installed)
         {
             if (keepIds.Contains(info.Record.Id)) continue;
             if (!info.Enabled) continue;
-            if (ModInstaller.DisableMod(gameDir, info.Record.Id))
-                TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' ("
-                    + (sceneSkipped.Contains(info.Record.Id)
-                        ? $"it doesn't work in the {scene} scene this server runs"
-                        : "no longer in the configured mods list") + ").");
+            try
+            {
+                if (ModInstaller.DisableMod(gameDir, info.Record.Id))
+                    TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' ("
+                        + (sceneSkipped.Contains(info.Record.Id)
+                            ? $"it doesn't work in the {scene} scene this server runs"
+                            : "no longer in the configured mods list") + ").");
+            }
+            catch (Exception e)
+            {
+                TavernLogger.Warn($"mod reconcile: couldn't disable '{info.Record.Id}' ({e.Message}); it stays enabled.");
+            }
         }
     }
 
