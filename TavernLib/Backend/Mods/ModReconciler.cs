@@ -19,8 +19,7 @@ namespace TavernLib.Backend.Mods;
 ///
 /// A mod on disk but no longer wanted is disabled, not deleted (same
 /// manifest.disabled.json rename the manual toggle uses), so re-adding it later
-/// needs no re-download. Actual deletion of long-disabled mods is a separate,
-/// manual-only cleanup (see ModsCommandModule).
+/// needs no re-download. Nothing here deletes a mod.
 ///
 /// "Wanted" is the desired list PLUS every mod in its dependency closure. A
 /// dependency is never named in the mods list - it arrives because something

@@ -37,9 +37,8 @@ public class ModRecord
     [JsonProperty("source_repo")] public string SourceRepo { get; set; }
     [JsonProperty("package")] public string Package { get; set; } = "dll";
 
-    /// <summary>The libraries this mod pins, by filename - uninstall/cleanup
-    /// reference-counts these so an orphaned UserLibs/ file is removed while one
-    /// another installed mod still lists stays put.</summary>
+    /// <summary>The libraries this mod pins, by filename; the launcher's
+    /// uninstall reference-counts UserLibs/ files by these.</summary>
     [JsonProperty("libraries")] public List<string> Libraries { get; set; } = new();
 
     /// <summary>The scenes this mod works in (see <see cref="ModScenesField"/>).
