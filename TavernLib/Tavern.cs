@@ -99,6 +99,9 @@ public class Tavern : MelonPlugin
                 else if (CommandLineArguments.TryGetNextArguments(TavernArgs.ModsListFile, 1, out var modListArgs))
                     ModReconciler.ReconcileModList(modListArgs[0], SceneIndexPatches.ForcedSceneName());
 
+                // After reconcile, so what loads is what it left on disk.
+                MelonModFolders.SyncForBoot(serverProcess: true);
+
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) StartLogArchiveTimer();
 
                 TavernServices.AddService(new TavernManager());
@@ -107,7 +110,8 @@ public class Tavern : MelonPlugin
                 // Servers run through TavernLauncher are backed up by the launcher itself
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) ServerBackup.Start();
             }
-            
+            else MelonModFolders.SyncForBoot(serverProcess: false);
+
             // Client & Server Services
             TavernServices.AddService(new EntranceMessageHandler());
         }
@@ -117,4 +121,4 @@ public class Tavern : MelonPlugin
             throw;
         }
     }
-}
+}

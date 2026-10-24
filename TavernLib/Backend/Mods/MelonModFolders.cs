@@ -5,14 +5,17 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 using MelonLoader.Resolver;
+using MelonLoader.Utils;
 
 namespace TavernLib.Backend.Mods;
 
 /// <summary>
-/// MelonLoader lists Mods/ subfolders once, before any plugin runs; only loose
-/// DLLs are listed later. Sync updates that list (a private field of MelonLoader
-/// 0.7's MelonFolderHandler, by reflection) to match what reconcile left on
-/// disk, so changes load this boot; if the field moves, they wait for a restart.
+/// MelonLoader lists Mods/ subfolders once, before any plugin runs, and skips
+/// dot folders, so neither .pc/ nor .server/ ever loads on its own. Sync edits
+/// that list (a private field of MelonLoader 0.7's MelonFolderHandler, by
+/// reflection) to match the disk after reconcile, plus this process's target
+/// build of every enabled mod of ours that lists it. If the field moves,
+/// managed mods don't load at all, never the wrong build.
 /// </summary>
 internal static class MelonModFolders
 {
@@ -20,7 +23,29 @@ internal static class MelonModFolders
     private static readonly string[] ExcludedPrefixes = ["~", "."];
     private static readonly string[] ExcludedNames = ["Broken", "Retired", "Disabled"];
 
-    public static void Sync(string modsDir)
+    // Below Mods/, MelonLoader files folders with these names as user libs or
+    // plugins, never as mod folders. Too late for either by now.
+    private static readonly string[] OtherScanNames = ["UserLibs", "Plugins"];
+
+    /// <summary>The boot entry point, for every role, before MelonLoader loads
+    /// Mods: .server/ builds in a server process (/start_server), .pc/ in any other.</summary>
+    public static void SyncForBoot(bool serverProcess)
+    {
+        var target = serverProcess ? ModManagerConstants.TargetServer : ModManagerConstants.TargetPc;
+        try
+        {
+            Sync(MelonEnvironment.GameRootDirectory, target);
+        }
+        catch (Exception e)
+        {
+            TavernLogger.Error($"mod folders: couldn't update MelonLoader's mod folder list ({e}); managed mods won't load this session.");
+        }
+    }
+
+    /// <summary>Makes _modDirs MelonLoader's own Mods/ scan of the disk as it is
+    /// now, plus .&lt;target&gt;/ (and its non-excluded subfolders) of each
+    /// folder whose record is enabled, ours, and lists target.</summary>
+    internal static void Sync(string gameDir, string target)
     {
         var loader = LoaderConfig.Current.Loader;
         if (loader.DisableSubFolderLoad) return;
@@ -29,18 +54,29 @@ internal static class MelonModFolders
             .GetField("_modDirs", BindingFlags.NonPublic | BindingFlags.Static);
         if (field?.GetValue(null) is not List<string> modDirs)
         {
-            TavernLogger.Warn("mod reconcile: couldn't reach MelonLoader's list of mod folders, so mods installed or "
-                + "disabled just now take effect on the next restart.");
+            TavernLogger.Warn("mod folders: couldn't reach MelonLoader's list of mod folders, so no managed mod "
+                + "loads this session.");
             return;
         }
 
+        var modsDir = ModPaths.ModsBase(gameDir);
+        if (!Directory.Exists(modsDir)) return;
         var root = Normalize(modsDir);
         var wanted = new List<string>();
+        var builds = new List<string>();
         foreach (var dir in Directory.GetDirectories(modsDir))
         {
             if (IsExcluded(dir)) continue;
             if (!loader.DisableSubFolderManifest && !File.Exists(Path.Combine(dir, ModManagerConstants.RecordName))) continue;
             AddWithSubfolders(dir, wanted);
+
+            var name = Path.GetFileName(dir);
+            var build = Path.Combine(dir, "." + target);
+            if (Directory.Exists(build) && OwnedEnabledRecord(gameDir, name)?.Lists(target) == true)
+            {
+                AddWithSubfolders(build, wanted);
+                builds.Add(name);
+            }
         }
         var wantedSet = new HashSet<string>(wanted.Select(Normalize), StringComparer.OrdinalIgnoreCase);
 
@@ -48,7 +84,7 @@ internal static class MelonModFolders
         {
             modDirs.Remove(stale);
             MelonAssemblyResolver.RemoveSearchDirectory(stale);
-            TavernLogger.Msg($"mod reconcile: {Path.GetFileName(stale)} won't load this session.");
+            TavernLogger.Msg($"mod folders: {Path.GetFileName(stale)} won't load this session.");
         }
 
         var known = new HashSet<string>(modDirs.Select(Normalize), StringComparer.OrdinalIgnoreCase);
@@ -56,7 +92,23 @@ internal static class MelonModFolders
         {
             modDirs.Add(dir);
             MelonAssemblyResolver.AddSearchDirectory(dir);
-            TavernLogger.Msg($"mod reconcile: {Path.GetFileName(dir)} will load this session.");
+        }
+        if (builds.Count > 0)
+            TavernLogger.Msg($"mod folders: loading the {target} build of {string.Join(", ", builds)}.");
+    }
+
+    // The record decides, never the folder name: anything that isn't ours,
+    // or is disabled, loads no build.
+    private static ModRecord OwnedEnabledRecord(string gameDir, string folder)
+    {
+        try
+        {
+            var record = ModRecord.Read(gameDir, folder, out var enabled);
+            return enabled ? record : null;
+        }
+        catch (ModManagerException)
+        {
+            return null;
         }
     }
 
@@ -66,7 +118,7 @@ internal static class MelonModFolders
     {
         into.Add(dir);
         foreach (var sub in Directory.GetDirectories(dir))
-            if (!IsExcluded(sub)) AddWithSubfolders(sub, into);
+            if (!IsExcluded(sub) && !OtherScanNames.Contains(Path.GetFileName(sub))) AddWithSubfolders(sub, into);
     }
 
     private static bool IsExcluded(string dir)
