@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Net;
-using System.Net.Http;
 using Microsoft.Win32;
 
 namespace TavernLib.Backend;
@@ -9,23 +8,6 @@ namespace TavernLib.Backend;
 public static class WindowsProxy
 {
     private const string InternetSettingsKey = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-
-    /// <summary>An HttpClient that honours the system proxy. Every HttpClient
-    /// this plugin makes comes from here: on a host behind a WinINet proxy - the
-    /// case CreateSystemProxy exists for - a bare HttpClient silently fails. The
-    /// mod manager's repo fetches and downloads don't use HttpClient at all; they
-    /// go through <see cref="NativeHttp"/>, which handles the proxy itself.</summary>
-    public static HttpClient CreateHttpClient(TimeSpan timeout)
-    {
-        var handler = new HttpClientHandler();
-        var systemProxy = CreateSystemProxy();
-        if (systemProxy != null)
-        {
-            handler.Proxy = systemProxy;
-            handler.UseProxy = true;
-        }
-        return new HttpClient(handler) { Timeout = timeout };
-    }
 
     /// <summary>
     /// Builds an IWebProxy from the current user's WinINet proxy settings (the same
