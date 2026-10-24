@@ -109,13 +109,6 @@ public static class ModHandshake
     private static DateTime _cachedAtUtc;
     private static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) _cached;
 
-    /// <summary>Drops the cached snapshot so the next request re-reads Mods/.
-    /// Call after anything that installs, removes, toggles, or repairs a mod.</summary>
-    public static void Invalidate()
-    {
-        lock (CacheLock) _cachedGameDir = null;
-    }
-
     public static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) Snapshot(string gameDir)
     {
         lock (CacheLock)
