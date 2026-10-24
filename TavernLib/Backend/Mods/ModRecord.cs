@@ -92,7 +92,7 @@ public class ModRecord
 
     /// <summary>Twin of install.py:_read_mod_record + _owned_mod_record, the "is
     /// this folder ours" predicate: the first of manifest.json and
-    /// manifest.disabled.json holding an object with a truthy id is the record,
+    /// manifest.disabled.json holding an object with a non-empty string id is the record,
     /// and it's ours only if its parity_required is a JSON boolean. Null when it
     /// isn't. <paramref name="enabled"/> is whether the record came from
     /// manifest.json, as list_installed_mods reports it.</summary>
@@ -101,7 +101,7 @@ public class ModRecord
         enabled = true;
         foreach (var path in new[] { ModPaths.ModRecordPath(gameDir, modId), ModPaths.DisabledRecordPath(gameDir, modId) })
         {
-            if (ParseObject(path) is { } obj && Truthy(obj["id"]))
+            if (ParseObject(path) is { } obj && HasId(obj["id"]))
             {
                 if (obj[ModParityField.Name]?.Type != JTokenType.Boolean)
                 {
@@ -112,9 +112,7 @@ public class ModRecord
                     }
                     return null;
                 }
-                var record = obj.ToObject<ModRecord>(JsonSerializer.Create(Lenient));
-                if (string.IsNullOrEmpty(record.Id)) record.Id = obj["id"].ToString(Formatting.None);
-                return record;
+                return obj.ToObject<ModRecord>(JsonSerializer.Create(Lenient));
             }
             enabled = false;
         }
@@ -144,14 +142,7 @@ public class ModRecord
         }
     }
 
-    // Python truthiness, which is what install.py's rec.get("id") tests.
-    private static bool Truthy(JToken t) => t?.Type switch
-    {
-        null or JTokenType.Null => false,
-        JTokenType.Boolean => (bool)t,
-        JTokenType.String => ((string)t).Length > 0,
-        JTokenType.Integer or JTokenType.Float =>
-            ((JValue)t).Value is not IConvertible n || n.ToDouble(CultureInfo.InvariantCulture) != 0,
-        _ => t is not JContainer c || c.Count > 0,
-    };
+    // A non-empty JSON string, as install.py's _folder_record requires: any
+    // other id can't sort into the handshake alongside real ones.
+    private static bool HasId(JToken t) => t?.Type == JTokenType.String && ((string)t).Length > 0;
 }

@@ -26,7 +26,7 @@ public class LibraryDependency
         {
             Name = (string)d["name"],
             DownloadUrl = (string)d["download_url"],
-            Sha256 = ((string)d["sha256"]).ToLowerInvariant(),
+            Sha256 = ModManifest.Sha256Field(d, "library_dependencies entry"),
             Filename = (string)d["filename"],
         };
     }
@@ -191,7 +191,7 @@ public class ModManifest
                 Dependencies = deps,
                 LibraryDependencies = libs,
                 DownloadUrl = (string)d["download_url"],
-                Sha256 = ((string)d["sha256"]).ToLowerInvariant(),
+                Sha256 = Sha256Field(d, "manifest"),
                 SourceRepo = sourceRepo,
                 Package = package,
                 Scenes = ModScenesField.Read(d[ModScenesField.Name], idForMsg),
@@ -211,6 +211,17 @@ public class ModManifest
     {
         if (d[field] == null)
             throw new ModManagerException($"missing field '{field}'");
+    }
+
+    /// <summary>d["sha256"] lowercased, refusing anything but 64 hex
+    /// characters. Same rule and message as manifest.py's _sha256_field.</summary>
+    internal static string Sha256Field(JObject d, string where)
+    {
+        var token = d["sha256"];
+        var value = token?.Type == JTokenType.String ? (string)token : null;
+        if (value == null || value.Length != 64 || !value.All(Uri.IsHexDigit))
+            throw new ModManagerException($"{where} has an invalid sha256 (expected 64 hex characters).");
+        return value.ToLowerInvariant();
     }
 }
 
