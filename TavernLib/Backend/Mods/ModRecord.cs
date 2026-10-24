@@ -82,10 +82,10 @@ public class ModRecord
 
     // Ownership is decided by the predicate in Read alone, so a malformed field
     // it doesn't look at costs that field, not the whole record.
-    private static readonly JsonSerializer Lenient = JsonSerializer.Create(new JsonSerializerSettings
+    private static readonly JsonSerializerSettings Lenient = new()
     {
         Error = (_, e) => e.ErrorContext.Handled = true,
-    });
+    };
 
     public static ModRecord Read(string gameDir, string modId) => Read(gameDir, modId, out _);
 
@@ -111,7 +111,7 @@ public class ModRecord
                     }
                     return null;
                 }
-                var record = obj.ToObject<ModRecord>(Lenient);
+                var record = obj.ToObject<ModRecord>(JsonSerializer.Create(Lenient));
                 if (string.IsNullOrEmpty(record.Id)) record.Id = obj["id"].ToString(Formatting.None);
                 return record;
             }
