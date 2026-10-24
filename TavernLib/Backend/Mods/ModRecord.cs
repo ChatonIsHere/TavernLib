@@ -31,7 +31,7 @@ public class ModRecord
     [JsonProperty("parity_required")]
     public bool ParityRequired { get; set; }
     [JsonProperty("dependencies")] public Dictionary<string, string> Dependencies { get; set; } = new();
-    [JsonProperty("library_dependencies")] public List<LibraryRecordEntry> LibraryDependencies { get; set; } = new();
+    [JsonProperty("library_dependencies")] public List<LibraryDependency> LibraryDependencies { get; set; } = new();
     [JsonProperty("download_url")] public string DownloadUrl { get; set; }
     [JsonProperty("sha256")] public string Sha256 { get; set; }
     [JsonProperty("source_repo")] public string SourceRepo { get; set; }
@@ -69,14 +69,6 @@ public class ModRecord
     [JsonProperty("files", NullValueHandling = NullValueHandling.Ignore)]
     public Dictionary<string, string> Files { get; set; }
 
-    public class LibraryRecordEntry
-    {
-        [JsonProperty("name")] public string Name { get; set; }
-        [JsonProperty("download_url")] public string DownloadUrl { get; set; }
-        [JsonProperty("sha256")] public string Sha256 { get; set; }
-        [JsonProperty("filename")] public string Filename { get; set; }
-    }
-
     public static ModRecord FromManifest(ModManifest mod) => new()
     {
         ManifestVersion = mod.ManifestVersion,
@@ -89,9 +81,7 @@ public class ModRecord
         ServerSide = mod.ServerSide,
         ParityRequired = mod.ParityRequired,
         Dependencies = new Dictionary<string, string>(mod.Dependencies ?? new()),
-        LibraryDependencies = (mod.LibraryDependencies ?? new List<LibraryDependency>())
-            .Select(l => new LibraryRecordEntry { Name = l.Name, DownloadUrl = l.DownloadUrl, Sha256 = l.Sha256, Filename = l.Filename })
-            .ToList(),
+        LibraryDependencies = (mod.LibraryDependencies ?? new List<LibraryDependency>()).ToList(),
         DownloadUrl = mod.DownloadUrl,
         Sha256 = mod.Sha256,
         SourceRepo = mod.SourceRepo,

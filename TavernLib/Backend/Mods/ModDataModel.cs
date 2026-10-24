@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using TavernLib;
 
@@ -14,10 +15,11 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public class LibraryDependency
 {
-    public string Name { get; set; }
-    public string DownloadUrl { get; set; }
-    public string Sha256 { get; set; }
-    public string Filename { get; set; }
+    // Also the record's library_dependencies entry shape, in this order.
+    [JsonProperty("name")] public string Name { get; set; }
+    [JsonProperty("download_url")] public string DownloadUrl { get; set; }
+    [JsonProperty("sha256")] public string Sha256 { get; set; }
+    [JsonProperty("filename")] public string Filename { get; set; }
 
     public static LibraryDependency FromJson(JObject d)
     {
