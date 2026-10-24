@@ -12,25 +12,23 @@ public static class ModDependencyResolver
     /// closure of the roots (roots excluded) by minimum-version-with-major-lock:
     /// within the required major, the highest indexed version at or above the
     /// running minimum. Cycles, chains deeper than MaxDependencyDepth and
-    /// cross-major demands throw. A dependency that can't run on
-    /// <paramref name="side"/> is pruned with everything only it needed: "M depends
-    /// on client-only D" can only mean M's client half needs D.
+    /// cross-major demands throw. A dependency with no artifact for
+    /// <paramref name="target"/> is pruned with everything only it needed: "M
+    /// depends on pc-only D" can only mean M's pc build needs D.
     /// </summary>
     public static List<ModManifest> ResolveDependencies(
         IReadOnlyList<ModManifest> roots,
         IReadOnlyList<ModSummary> summaryIndex,
         Func<string, string, string, ModManifest> fetchManifest,
-        string side)
+        string target)
     {
-        if (side != ModManagerConstants.SideClient && side != ModManagerConstants.SideServer)
+        if (!ModManagerConstants.KnownTargets.Contains(target))
             throw new ModManagerException(
-                $"ResolveDependencies needs side '{ModManagerConstants.SideClient}' or '{ModManagerConstants.SideServer}', got '{side}'.");
+                $"ResolveDependencies needs one of the targets {string.Join(", ", ModManagerConstants.KnownTargets)}, got '{target}'.");
 
-        // Read off the per-version MANIFEST, never a ModSummary: the manifest
-        // requires both fields, while a summary defaults them to false, so a
-        // hand-rolled third-party index omitting them would prune on both sides.
-        bool RunsOnThisSide(ModManifest m) =>
-            side == ModManagerConstants.SideClient ? m.ClientSide : m.ServerSide;
+        // Read off the per-version MANIFEST, never the index's targets: only
+        // the manifest says which artifacts this build can actually install.
+        bool BuildsForTarget(ModManifest m) => m.ArtifactFor(target) != null;
 
         var summ = new Dictionary<(string Id, int Major), ModSummary>();
         foreach (var s in summaryIndex) summ[(s.Id, s.Major)] = s;
@@ -39,7 +37,7 @@ public static class ModDependencyResolver
         var chosen = new Dictionary<string, ModManifest>();
         var reqMin = new Dictionary<string, ModVersion>();   // the required major is reqMin[id].Major
         var reqBy = new Dictionary<string, (string Requirer, string Constraint)>();
-        var pruned = new HashSet<string>();   // wrong-side ids, so each is fetched at most once
+        var pruned = new HashSet<string>();   // ids with no target build, so each is fetched at most once
 
         void Visit(ModManifest mod, List<string> chain)
         {
@@ -63,7 +61,7 @@ public static class ModDependencyResolver
             {
                 // Already pruned: reported again so this requirer isn't invisible, but not
                 // re-fetched or re-walked.
-                TavernLogger.Warn($"{requirer} depends on '{depId}', which doesn't run on the {side}; skipped.");
+                TavernLogger.Warn($"{requirer} depends on '{depId}', which has no {target} build; skipped.");
                 return;
             }
 
@@ -112,12 +110,12 @@ public static class ModDependencyResolver
             }
 
             var manifest = fetchManifest(depId, pickVersion, summary.SourceRepo);
-            if (!RunsOnThisSide(manifest))
+            if (!BuildsForTarget(manifest))
             {
                 // Pruned before its constraints are recorded, so a mod we aren't installing
                 // can't raise a diamond conflict, and nothing only it needed is walked.
                 pruned.Add(depId);
-                TavernLogger.Warn($"{requirer} depends on '{depId}' {pickVersion}, which doesn't run on the {side}; skipped, along with anything only it needed.");
+                TavernLogger.Warn($"{requirer} depends on '{depId}' {pickVersion}, which has no {target} build; skipped, along with anything only it needed.");
                 return;
             }
 

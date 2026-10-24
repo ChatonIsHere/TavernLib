@@ -24,14 +24,23 @@ public static class ModManagerConstants
         return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}" : trimmed;
     }
 
-    public const int SupportedManifestMajor = 1;
-    public const int SupportedIndexMajor = 1;
+    public const int SupportedManifestMajor = 2;
+    public const int SupportedIndexMajor = 2;
 
     public const int MaxDependencyDepth = 5;
 
-    /// <summary>The side a closure is resolved for, spelled as resolve.py's SIDES.</summary>
-    public const string SideClient = "client";
-    public const string SideServer = "server";
+    /// <summary>The kinds of process an artifact is built for. TavernLib only
+    /// ever installs <see cref="TargetServer"/>.</summary>
+    public const string TargetPc = "pc";
+    public const string TargetServer = "server";
+    public const string TargetQuest = "quest";
+
+    /// <summary>Any other target name is ignored, so one added later doesn't
+    /// break this build.</summary>
+    public static readonly string[] KnownTargets = [TargetPc, TargetServer, TargetQuest];
+
+    public const string PackageDll = "dll";
+    public const string PackageZip = "zip";
 
     public const int ZipMaxEntries = 2000;
     public const long ZipMaxTotalUncompressed = 500L * 1024 * 1024;

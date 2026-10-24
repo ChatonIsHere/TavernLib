@@ -11,7 +11,6 @@ namespace TavernLib.Backend.Mods;
 /// no id and no version range.</summary>
 public class LibraryDependency
 {
-    // Also the record's library_dependencies entry shape, in this order.
     [JsonProperty("name")] public string Name { get; set; }
     [JsonProperty("download_url")] public string DownloadUrl { get; set; }
     [JsonProperty("sha256")] public string Sha256 { get; set; }
@@ -82,38 +81,39 @@ public static class ModScenesField
 }
 
 /// <summary>
-/// The full per-version manifest, fetched on demand from
-/// manifests/&lt;author&gt;/&lt;repo&gt;/&lt;version&gt;.json (or a latest*.json pointer).
+/// One build in a manifest's artifacts list. Twin of manifest.py's
+/// _artifact_from_dict: every entry is checked, but only one with a known
+/// package is ever installed, and only for a target this build knows.
 /// </summary>
-public class ModManifest
+public class ModArtifact
 {
-    public int ManifestVersion { get; set; }
-    public string Id { get; set; }
-    public string Name { get; set; }
-    public string Version { get; set; }
-    public string Author { get; set; }
-    public string Description { get; set; }
-    public bool ClientSide { get; set; }
-    public bool ServerSide { get; set; }
-    public bool ParityRequired { get; set; }
-    public Dictionary<string, string> Dependencies { get; set; } = new();
-    public List<LibraryDependency> LibraryDependencies { get; set; } = new();
-    public string DownloadUrl { get; set; }
-    public string Sha256 { get; set; }
-    public string SourceRepo { get; set; }
-    public string Package { get; set; } = "dll";
-    /// <summary>See <see cref="ModScenesField"/>; null means every scene.</summary>
-    public List<string> Scenes { get; set; }
+    // The compiled manifest's key order, which a record keeps.
+    internal static readonly string[] KeyOrder = ["targets", "download_url", "sha256", "package", "library_dependencies"];
+    internal static readonly string[] LibraryKeyOrder = ["name", "download_url", "sha256", "filename"];
+
+    /// <summary>Every name listed, known or not.</summary>
+    public List<string> Targets { get; private set; }
+    public string DownloadUrl { get; private set; }
+    public string Sha256 { get; private set; }
+    /// <summary>As written; null when absent or not a string.</summary>
+    public string Package { get; private set; }
+    public List<LibraryDependency> LibraryDependencies { get; private set; }
+    private JObject _raw;
+
+    /// <summary>False for a package this build can't install, which leaves the
+    /// artifact ignored like an unknown target.</summary>
+    public bool Usable => Package is ModManagerConstants.PackageDll or ModManagerConstants.PackageZip;
+
+    public bool Builds(string target) => Usable && Targets.Contains(target);
 
     /// <summary>Twin of manifest.py's install_name: the download URL's basename if
     /// it's safe and ends in .dll, else &lt;id&gt;.dll.</summary>
-    public string InstallName()
+    public string InstallName(string modId)
     {
         string basename;
         try
         {
-            var uri = new Uri(DownloadUrl);
-            basename = System.IO.Path.GetFileName(uri.LocalPath);
+            basename = System.IO.Path.GetFileName(new Uri(DownloadUrl).LocalPath);
         }
         catch (Exception)
         {
@@ -130,11 +130,80 @@ public class ModManifest
             safe = "";
         }
 
-        return safe.ToLowerInvariant().EndsWith(".dll") ? safe : $"{Id}.dll";
+        return safe.ToLowerInvariant().EndsWith(".dll") ? safe : $"{modId}.dll";
     }
 
+    public static ModArtifact FromJson(JToken token, string idForMsg)
+    {
+        var where = $"an artifact of '{idForMsg}'";
+        if (token is not JObject d)
+            throw new ModManagerException($"{where} isn't a JSON object.");
+        if (d["targets"] is not JArray targets || targets.Count == 0 || targets.Any(t => t.Type != JTokenType.String))
+            throw new ModManagerException($"{where} has no targets list.");
+        if (d["download_url"]?.Type != JTokenType.String)
+            throw new ModManagerException($"{where} has no download_url.");
+        var libs = d["library_dependencies"] ?? new JArray();
+        if (libs is not JArray || libs.Any(l => l.Type != JTokenType.Object))
+            throw new ModManagerException($"{where} has a library_dependencies value that isn't a list of objects.");
+
+        return new ModArtifact
+        {
+            Targets = targets.Select(t => (string)t).ToList(),
+            DownloadUrl = (string)d["download_url"],
+            Sha256 = ModManifest.Sha256Field(d, where),
+            Package = d["package"]?.Type == JTokenType.String ? (string)d["package"] : null,
+            LibraryDependencies = libs.Select(l => LibraryDependency.FromJson((JObject)l)).ToList(),
+            _raw = d,
+        };
+    }
+
+    /// <summary>The artifact as a record stores it: the manifest's own values,
+    /// known keys in <see cref="KeyOrder"/>, then any others as they came.</summary>
+    internal JObject ToRecordJson()
+    {
+        var copy = Reordered(_raw, KeyOrder);
+        if (copy["library_dependencies"] is JArray libs)
+            copy["library_dependencies"] = new JArray(libs.Select(l => Reordered((JObject)l, LibraryKeyOrder)));
+        return copy;
+    }
+
+    private static JObject Reordered(JObject source, string[] order)
+    {
+        var copy = new JObject();
+        foreach (var key in order.Where(source.ContainsKey))
+            copy[key] = source[key].DeepClone();
+        foreach (var prop in source.Properties().Where(p => !order.Contains(p.Name)))
+            copy[prop.Name] = prop.Value.DeepClone();
+        return copy;
+    }
+}
+
+/// <summary>
+/// The full per-version manifest, fetched on demand from
+/// manifests/&lt;author&gt;/&lt;repo&gt;/&lt;version&gt;.json (or a latest*.json pointer).
+/// </summary>
+public class ModManifest
+{
+    public int ManifestVersion { get; set; }
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public string Version { get; set; }
+    public string Author { get; set; }
+    public string Description { get; set; }
+    public bool ParityRequired { get; set; }
+    public Dictionary<string, string> Dependencies { get; set; } = new();
+    /// <summary>In manifest order, ignored ones included: a record keeps them all.</summary>
+    public List<ModArtifact> Artifacts { get; set; } = new();
+    public string SourceRepo { get; set; }
+    /// <summary>See <see cref="ModScenesField"/>; null means every scene.</summary>
+    public List<string> Scenes { get; set; }
+
+    /// <summary>The build to install for target, or null: a target no usable
+    /// artifact lists is one the mod doesn't support.</summary>
+    public ModArtifact ArtifactFor(string target) => Artifacts.FirstOrDefault(a => a.Builds(target));
+
     /// <summary>Twin of manifest.py's _manifest_from_dict: null for an unsupported
-    /// schema or package (warned and dropped), throws for a broken manifest.</summary>
+    /// schema (warned and dropped), throws for a broken manifest.</summary>
     public static ModManifest FromJson(JObject d, string sourceRepo)
     {
         var idForMsg = (string)d["id"] ?? "?";
@@ -152,26 +221,24 @@ public class ModManifest
             return null;
         }
 
-        var package = ((string)d["package"] ?? "dll").ToLowerInvariant();
-        if (package != "dll" && package != "zip")
-        {
-            TavernLogger.Warn($"manifest for {idForMsg} has unknown package type '{package}' (expected 'dll' or 'zip'), skipped.");
-            return null;
-        }
-
         try
         {
             RequireField(d, "id");
             RequireField(d, "version");
-            RequireField(d, "client_side");
-            RequireField(d, "server_side");
-            RequireField(d, "download_url");
-            RequireField(d, "sha256");
+
+            if (d["artifacts"] is not JArray rawArtifacts || rawArtifacts.Count == 0)
+                throw new ModManagerException($"manifest for {idForMsg} has no artifacts.");
+            var artifacts = rawArtifacts.Select(a => ModArtifact.FromJson(a, idForMsg)).ToList();
+            // Over every artifact, ignored or not, so which build a target gets
+            // never depends on which packages a reader knows.
+            var twice = artifacts.SelectMany(a => a.Targets)
+                .Where(ModManagerConstants.KnownTargets.Contains)
+                .GroupBy(t => t)
+                .FirstOrDefault(g => g.Count() > 1);
+            if (twice != null)
+                throw new ModManagerException($"manifest for {idForMsg} lists the '{twice.Key}' target twice.");
 
             var modId = (string)d["id"];
-            var libs = ((JArray)d["library_dependencies"] ?? new JArray())
-                .Select(x => LibraryDependency.FromJson((JObject)x))
-                .ToList();
             var deps = new Dictionary<string, string>();
             if (d["dependencies"] is JObject depObj)
                 foreach (var prop in depObj.Properties())
@@ -185,15 +252,10 @@ public class ModManifest
                 Version = (string)d["version"],
                 Author = (string)d["author"] ?? modId.Split('.')[0],
                 Description = (string)d["description"] ?? "",
-                ClientSide = (bool)d["client_side"],
-                ServerSide = (bool)d["server_side"],
                 ParityRequired = ModParityField.Read(d[ModParityField.Name], idForMsg),
                 Dependencies = deps,
-                LibraryDependencies = libs,
-                DownloadUrl = (string)d["download_url"],
-                Sha256 = Sha256Field(d, "manifest"),
+                Artifacts = artifacts,
                 SourceRepo = sourceRepo,
-                Package = package,
                 Scenes = ModScenesField.Read(d[ModScenesField.Name], idForMsg),
             };
         }

@@ -35,7 +35,7 @@ public static class ModsCommandModule
         // Enabled mods only: a disabled one isn't loaded, so it's listed
         // without a verdict rather than hashed for nothing.
         var damaged = installed
-            .Where(m => m.Enabled && ModInstaller.VerifyModFiles(gameDir, m.Record) == false)
+            .Where(m => m.Enabled && ModInstaller.VerifyTarget(gameDir, m.Record, ModManagerConstants.TargetServer) == false)
             .Select(m => m.Record.Id)
             .ToHashSet();
 

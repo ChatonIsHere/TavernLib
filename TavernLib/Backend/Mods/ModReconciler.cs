@@ -11,7 +11,8 @@ namespace TavernLib.Backend.Mods;
 /// Headless-server reconcile of Mods/ against a ModsList, run synchronously
 /// from OnEarlyInitializeMelon so what's on disk when it returns is what loads.
 /// Pulls only from trustedRepos, never from the modlist's informational
-/// `repos`. An unwanted mod is disabled, never deleted.
+/// `repos`. An unwanted mod is disabled, never deleted. Only the server target
+/// is installed, and only mods that list it are this pass's to switch on or off.
 ///
 /// "Wanted" is each listed mod PLUS its dependency closure: dependencies are
 /// never named in the list, so a list-driven disable pass would switch off on
@@ -19,15 +20,16 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModReconciler
 {
+    private const string Target = ModManagerConstants.TargetServer;
+
     /// <summary>
     /// The headless boot entry point. Runs from OnEarlyInitializeMelon, after
-    /// MelonLoader has listed the Mods/ subfolders but before LoadMelons(Mods),
-    /// so it ends by syncing that list with the disk (MelonModFolders).
+    /// MelonLoader has listed the Mods/ subfolders but before LoadMelons(Mods);
+    /// the caller then syncs that list with the disk (MelonModFolders).
     /// </summary>
     public static void ReconcileModList(string modsListPathArg, string scene)
     {
         TavernLogger.Msg("mod reconcile: running before Mods/ is scanned (OnEarlyInitializeMelon).");
-        var started = false;
         try
         {
             var path = Path.IsPathRooted(modsListPathArg)
@@ -47,30 +49,11 @@ public static class ModReconciler
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
 
-            started = true;
             Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead, scene);
         }
         catch (Exception e)
         {
             TavernLogger.Error($"mod reconcile: couldn't read '{modsListPathArg}' or reconcile failed ({e}); booting with Mods/ unchanged.");
-        }
-        finally
-        {
-            // Even after a partial failure: the handshake reads the disk, so
-            // MelonLoader's folder list has to match whatever reconcile left there.
-            if (started) SyncModFolders();
-        }
-    }
-
-    private static void SyncModFolders()
-    {
-        try
-        {
-            MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
-        }
-        catch (Exception e)
-        {
-            TavernLogger.Error($"mod reconcile: couldn't update MelonLoader's mod folder list ({e}); changes take effect on the next restart.");
         }
     }
 
@@ -87,9 +70,9 @@ public static class ModReconciler
     {
         private readonly DateTime _deadline = DateTime.UtcNow.AddSeconds(ModManagerConstants.ReconcileMaxSeconds);
         private readonly ModRepoClient _client = new(http);
-        // Listed, but left out for this server's scene, so the disable pass can
-        // say why rather than calling them unlisted.
-        private readonly HashSet<string> _sceneSkipped = new();
+        // Listed but left out, by id, with why, so the disable pass can say so
+        // rather than calling them unlisted.
+        private readonly Dictionary<string, string> _skipped = new();
         private Dictionary<string, InstalledModInfo> _installed;
         private List<ModSummary> _index;
         // Verdicts for this pass, so a dependency or library shared by several
@@ -99,6 +82,8 @@ public static class ModReconciler
 
         // Fetched on first use: a boot with nothing to install never needs it.
         private List<ModSummary> Index => _index ??= FetchIndex();
+
+        private string SceneReason => $"it doesn't work in the {scene} scene this server runs";
 
         private List<ModSummary> FetchIndex()
         {
@@ -112,6 +97,11 @@ public static class ModReconciler
                 return new List<ModSummary>();
             }
         }
+
+        /// <summary>A record that lists the server target: the only kind this
+        /// server runs, and so the only kind reconcile turns on or off. A build
+        /// installed only for pc in the same folder is a player's, not ours.</summary>
+        private bool RunsHere(string id) => _installed.TryGetValue(id, out var info) && info.Record.Lists(Target);
 
         public void Run(ModsList modsList)
         {
@@ -131,7 +121,7 @@ public static class ModReconciler
                     {
                         var id = desiredEntries[j].Id;
                         if (_installed.TryGetValue(id, out var left) && !ModScenesField.RunsIn(left.Record.Scenes, scene))
-                            _sceneSkipped.Add(id);
+                            _skipped[id] = SceneReason;
                         else
                             AddInstalledClosure(id, keepIds);
                     }
@@ -142,7 +132,7 @@ public static class ModReconciler
 
             // Re-enable anything kept but disabled, such as a mod disabled by
             // hand that is back in the list.
-            foreach (var id in keepIds)
+            foreach (var id in keepIds.Where(RunsHere))
             {
                 try
                 {
@@ -158,14 +148,12 @@ public static class ModReconciler
             foreach (var info in installed)
             {
                 if (keepIds.Contains(info.Record.Id)) continue;
-                if (!info.Enabled) continue;
+                if (!info.Enabled || !info.Record.Lists(Target)) continue;
                 try
                 {
                     if (ModInstaller.DisableMod(gameDir, info.Record.Id))
                         TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' ("
-                            + (_sceneSkipped.Contains(info.Record.Id)
-                                ? $"it doesn't work in the {scene} scene this server runs"
-                                : "no longer in the configured mods list") + ").");
+                            + (_skipped.TryGetValue(info.Record.Id, out var why) ? why : "no longer in the configured mods list") + ").");
                 }
                 catch (Exception e)
                 {
@@ -176,13 +164,15 @@ public static class ModReconciler
 
         /// <summary>An installed mod's dependency closure, read off the records
         /// on disk with no network: the steady state, and the fallback when
-        /// resolution fails, so a repo outage never disables a dependency.
-        /// Visited-guarded against cycles in recorded data.</summary>
+        /// resolution fails, so a repo outage never disables a dependency. Only
+        /// server builds are walked; an id with none is added unwalked, for the
+        /// caller's missing-dependency check. Visited-guarded against cycles in
+        /// recorded data.</summary>
         private void AddInstalledClosure(string modId, HashSet<string> into)
         {
             if (!into.Add(modId)) return;
-            if (!_installed.TryGetValue(modId, out var info)) return;
-            foreach (var depId in (info.Record.Dependencies ?? new Dictionary<string, string>()).Keys)
+            if (!RunsHere(modId)) return;
+            foreach (var depId in (_installed[modId].Record.Dependencies ?? new Dictionary<string, string>()).Keys)
                 AddInstalledClosure(depId, into);
         }
 
@@ -193,17 +183,17 @@ public static class ModReconciler
             return closure;
         }
 
-        /// <summary>The first damaged mod or pinned library in an entry's
-        /// installed closure, described, or null. Dependencies are checked here
-        /// because nothing else ever re-checks them.</summary>
+        /// <summary>The first damaged server build or pinned library in an
+        /// entry's installed closure, described, or null. Dependencies are
+        /// checked here because nothing else ever re-checks them.</summary>
         private string FindDamage(string rootId)
         {
-            foreach (var id in InstalledClosure(rootId).OrderBy(x => x, StringComparer.Ordinal))
+            foreach (var id in InstalledClosure(rootId).Where(RunsHere).OrderBy(x => x, StringComparer.Ordinal))
             {
-                if (!_installed.TryGetValue(id, out var info)) continue;
-                if (Memo(_modVerified, id, () => ModInstaller.VerifyModFiles(gameDir, info.Record)) == false)
-                    return $"'{id}' {info.Record.Version} is damaged (its files no longer match what was installed)";
-                foreach (var lib in info.Record.Libraries ?? new List<string>())
+                var record = _installed[id].Record;
+                if (Memo(_modVerified, id, () => ModInstaller.VerifyTarget(gameDir, record, Target)) == false)
+                    return $"'{id}' {record.Version} is damaged (its {Target} files no longer match what was installed)";
+                foreach (var lib in record.InstalledFor(Target).Libraries ?? new List<string>())
                     if (Memo(_libVerified, lib, () => ModInstaller.VerifyLibrary(gameDir, lib)) == false)
                         return $"library '{lib}' (pinned by '{id}') is damaged";
             }
@@ -220,7 +210,7 @@ public static class ModReconciler
         {
             try
             {
-                ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, _deadline);
+                ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, Target, _deadline);
             }
             finally
             {
@@ -251,10 +241,10 @@ public static class ModReconciler
         }
 
         /// <summary>
-        /// Brings one entry to its target version and returns every id it
-        /// accounts for, itself plus its closure. Only an install needs more than
-        /// the target manifest; if anything fails, the on-disk closure is kept so
-        /// an outage degrades to "keep what's installed".
+        /// Brings one entry's server build to its target version and returns
+        /// every id it accounts for, itself plus its closure. Only an install
+        /// needs more than the target manifest; if anything fails, the on-disk
+        /// closure is kept so an outage degrades to "keep what's installed".
         /// </summary>
         private HashSet<string> ReconcileOne(ModsListEntry entry)
         {
@@ -268,13 +258,19 @@ public static class ModReconciler
                     : _client.ResolveModById(repos, entry.Id, preferRepo);
 
                 // Skipped, not refused: nobody is there to ask, and booting
-                // without the mod beats booting it into a scene it breaks in.
+                // without the mod beats booting something that can't run here.
                 // Keeping nothing means the disable pass turns an installed copy off.
+                if (target.ArtifactFor(Target) == null)
+                {
+                    TavernLogger.Warn($"mod reconcile: '{entry.Id}' {target.Version} has no {Target} build; skipped.");
+                    _skipped[entry.Id] = $"it has no {Target} build";
+                    return keep;
+                }
                 if (!ModScenesField.RunsIn(target.Scenes, scene))
                 {
                     TavernLogger.Warn($"mod reconcile: '{entry.Id}' {target.Version} works in the "
                         + $"{string.Join(", ", target.Scenes)} scene(s), not the {scene} scene this server runs; skipped.");
-                    _sceneSkipped.Add(entry.Id);
+                    _skipped[entry.Id] = SceneReason;
                     return keep;
                 }
 
@@ -290,12 +286,12 @@ public static class ModReconciler
                     return m;
                 }
 
-                // Always the server side: client-only dependencies are pruned
-                // rather than installed into a process that would throw loading them.
+                // Dependencies with no server build are pruned rather than
+                // installed into a process that would throw loading them.
                 List<ModManifest> ResolveDeps() => ModDependencyResolver.ResolveDependencies(
-                    new List<ModManifest> { target }, Index, Fetch, ModManagerConstants.SideServer);
+                    new List<ModManifest> { target }, Index, Fetch, Target);
 
-                var needsInstall = existing == null || existing.Record.Version != target.Version;
+                var needsInstall = !RunsHere(entry.Id) || existing.Record.Version != target.Version;
                 List<ModManifest> deps = null;
 
                 // Right version, wrong bytes: re-check the files map. A record
@@ -304,12 +300,12 @@ public static class ModReconciler
                 {
                     var damage = FindDamage(entry.Id);
                     // A dependency missing from disk may have been deleted, or may
-                    // be one that doesn't run on servers and so was never installed;
-                    // only resolving tells the two apart.
-                    if (damage == null && InstalledClosure(entry.Id).Any(id => !_installed.ContainsKey(id)))
+                    // be one with no server build and so never installed; only
+                    // resolving tells the two apart.
+                    if (damage == null && InstalledClosure(entry.Id).Any(id => !RunsHere(id)))
                     {
                         deps = ResolveDeps();
-                        var lost = deps.FirstOrDefault(d => !_installed.ContainsKey(d.Id));
+                        var lost = deps.FirstOrDefault(d => !RunsHere(d.Id));
                         if (lost != null) damage = $"dependency '{lost.Id}' is missing";
                     }
                     if (damage != null)
@@ -331,9 +327,9 @@ public static class ModReconciler
                 }
 
                 deps ??= ResolveDeps();
-                var libs = ModInstaller.CollectLibraryDependencies(new[] { target }.Concat(deps));
+                var libs = ModInstaller.CollectLibraryDependencies(gameDir, deps.Prepend(target).ToList(), Target);
                 InstallClosure(target, deps, libs);
-                TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version}.");
+                TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version} ({Target}).");
 
                 keep.Add(target.Id);
                 foreach (var dep in deps) keep.Add(dep.Id);
@@ -345,10 +341,10 @@ public static class ModReconciler
                 // repo can't let back in a mod this server's scene rules out.
                 if (existing != null && !ModScenesField.RunsIn(existing.Record.Scenes, scene))
                 {
-                    _sceneSkipped.Add(entry.Id);
+                    _skipped[entry.Id] = SceneReason;
                     return keep;
                 }
-                if (existing != null)
+                if (RunsHere(entry.Id))
                     TavernLogger.Warn($"mod reconcile: couldn't resolve/update '{entry.Id}' ({e.Message}); keeping the installed {existing.Record.Version}.");
                 else
                     TavernLogger.Warn($"mod reconcile: couldn't resolve/install '{entry.Id}' ({e.Message}); the server will boot without it.");

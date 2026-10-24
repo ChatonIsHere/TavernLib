@@ -5,7 +5,6 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace TavernLib.Backend.Mods;
@@ -163,18 +162,20 @@ public static class ModInstaller
         return map;
     }
 
-    /// <summary>Twin of install.py's verify_mod_files: true if every recorded file
-    /// is present at its hash, false if not, null when the record has no files map.
-    /// Null is deliberately not false: a pre-map install is not evidence of damage.
-    /// Re-hashes on every call; reconcile memoizes per pass.</summary>
-    public static bool? VerifyModFiles(string gameDir, ModRecord record)
+    /// <summary>Twin of install.py's verify_mod_files for one target: true if
+    /// every file in installed.&lt;target&gt;.files is present under
+    /// .&lt;target&gt;/ at its hash, false (damaged) if not, null when there is
+    /// nothing to check. Null is deliberately not false: no evidence is not
+    /// damage. Re-hashes on every call; reconcile memoizes per pass.</summary>
+    public static bool? VerifyTarget(string gameDir, ModRecord record, string target)
     {
-        if (record?.Files == null || record.Files.Count == 0) return null;
+        var files = record?.InstalledFor(target)?.Files;
+        if (files == null || files.Count == 0) return null;
 
-        var modDir = ModPaths.ModDirPath(gameDir, record.Id);
-        foreach (var entry in record.Files)
+        var targetDir = ModPaths.TargetDirPath(gameDir, record.Id, target);
+        foreach (var entry in files)
         {
-            var path = Path.Combine(modDir, entry.Key.Replace('/', Path.DirectorySeparatorChar));
+            var path = Path.Combine(targetDir, entry.Key.Replace('/', Path.DirectorySeparatorChar));
             if (!File.Exists(path)) return false;
             if (!string.Equals(Sha256File(path), entry.Value ?? "", StringComparison.OrdinalIgnoreCase))
                 return false;
@@ -203,9 +204,10 @@ public static class ModInstaller
         Directory.CreateDirectory(path);
     }
 
-    /// <summary>Twin of install.py's _clear_install_path: a folder of ours is
-    /// deleted, anything else moved to Mods/.displaced/ (a headless boot has nobody
-    /// to ask, so only a recoverable answer will do).</summary>
+    /// <summary>Twin of install.py's _clear_install_path, for replacing a whole
+    /// mod: a folder of ours is emptied best effort, anything else moved to
+    /// Mods/.displaced/ (a headless boot has nobody to ask, so only a recoverable
+    /// answer will do).</summary>
     private static void ClearInstallPath(string gameDir, string modId)
     {
         var modDir = ModPaths.ModDirPath(gameDir, modId);
@@ -213,7 +215,23 @@ public static class ModInstaller
 
         if (ModRecord.Read(gameDir, modId) != null)
         {
-            Directory.Delete(modDir, recursive: true);
+            // The record stays until the new one overwrites it. Anything a
+            // running game holds open is left; no longer under `installed`,
+            // a dot folder of it is never loaded.
+            foreach (var entry in Directory.GetFileSystemEntries(modDir))
+            {
+                var child = Path.GetFileName(entry);
+                if (IsRecordName(child)) continue;
+                try
+                {
+                    if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
+                    else File.Delete(entry);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    TavernLogger.Warn($"mod install: couldn't remove Mods/{modId}/{child} ({e.Message}); left it behind.");
+                }
+            }
             return;
         }
 
@@ -233,41 +251,72 @@ public static class ModInstaller
             + "nothing loads from there, so remove it by hand once you've checked it.");
     }
 
-    /// <summary>Installs one mod into Mods/&lt;id&gt;/ with its record, assembled in
-    /// staging and swapped in whole so a failure never leaves a partial folder.</summary>
-    public static void InstallMod(string gameDir, NativeHttp http, ModManifest mod, DateTime deadlineUtc)
+    private static bool IsRecordName(string name) =>
+        string.Equals(name, ModManagerConstants.RecordName, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(name, ModManagerConstants.DisabledRecordName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Twin of install.py's install_mod: installs mod's build for target into
+    /// Mods/&lt;id&gt;/.&lt;target&gt;/, assembled in staging so a failure never
+    /// leaves a partial folder, then writes the record last. At the record's own
+    /// version only that target is replaced; at any other version, or over a
+    /// record with no `installed`, the whole mod is.
+    /// </summary>
+    public static void InstallMod(string gameDir, NativeHttp http, ModManifest mod, string target, DateTime deadlineUtc)
     {
+        var artifact = mod.ArtifactFor(target)
+            ?? throw new ModManagerException($"'{mod.Id}' {mod.Version} has no {target} build.");
         var modDir = ModPaths.ModDirPath(gameDir, mod.Id);
+        var targetDir = ModPaths.TargetDirPath(gameDir, mod.Id, target);
         var staging = ModPaths.StagingPath(gameDir, mod.Id);
         ResetDir(staging);
         try
         {
-            if (mod.Package == "zip")
-                VerifiedDownload(http, mod.DownloadUrl, mod.Sha256, staging, deadlineUtc, tmp => SafeExtractZip(tmp, staging));
+            if (artifact.Package == ModManagerConstants.PackageZip)
+                VerifiedDownload(http, artifact.DownloadUrl, artifact.Sha256, staging, deadlineUtc, tmp => SafeExtractZip(tmp, staging));
             else
-                DownloadVerifyMove(http, mod.DownloadUrl, mod.Sha256, Path.Combine(staging, mod.InstallName()), deadlineUtc);
-            // Hashed before the record is written, so it's never part of its own map.
-            var record = ModRecord.FromManifest(mod);
-            record.Files = HashTree(staging);
-            record.WriteTo(Path.Combine(staging, ModManagerConstants.RecordName));
+                DownloadVerifyMove(http, artifact.DownloadUrl, artifact.Sha256, Path.Combine(staging, artifact.InstallName(mod.Id)), deadlineUtc);
+            var entry = ModRecord.InstalledEntry(artifact, HashTree(staging));
 
-            ClearInstallPath(gameDir, mod.Id);
-            Directory.Move(staging, modDir);
+            var existing = ModRecord.ReadOwned(gameDir, mod.Id, out var existingPath);
+            var installed = new Dictionary<string, JToken>();
+            string recordPath;
+            if (existing?["installed"] is JObject kept && (string)existing["version"] == mod.Version)
+            {
+                // Other targets' entries are kept as written, whichever installer wrote them.
+                foreach (var prop in kept.Properties().Where(p => p.Name != target))
+                    installed[prop.Name] = prop.Value;
+                if (Directory.Exists(targetDir)) Directory.Delete(targetDir, recursive: true);
+                recordPath = existingPath;   // a disabled mod stays disabled
+            }
+            else
+            {
+                ClearInstallPath(gameDir, mod.Id);
+                recordPath = ModPaths.ModRecordPath(gameDir, mod.Id);
+            }
+            Directory.CreateDirectory(modDir);
+            Directory.Move(staging, targetDir);
+
+            installed[target] = entry;
+            ModRecord.WriteFile(recordPath, ModRecord.Build(mod, installed));
+            // One record file afterwards; a whole replace is a fresh, enabled install.
+            if (recordPath == ModPaths.ModRecordPath(gameDir, mod.Id) && File.Exists(ModPaths.DisabledRecordPath(gameDir, mod.Id)))
+                File.Delete(ModPaths.DisabledRecordPath(gameDir, mod.Id));
         }
         finally
         {
             if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
         }
-        DisableShadowedLooseDlls(gameDir, mod.Id, modDir);
+        DisableShadowedLooseDlls(gameDir, mod.Id, targetDir);
     }
 
     /// <summary>Twin of install.py's _disable_shadowed_loose_dlls: a loose root
-    /// Mods/&lt;name&gt;.dll matching a DLL this install placed is an older hand
-    /// install MelonLoader would load twice, so it's renamed aside. Never fails the
-    /// install.</summary>
-    private static void DisableShadowedLooseDlls(string gameDir, string modId, string modDir)
+    /// Mods/&lt;name&gt;.dll matching a DLL this install placed in the target
+    /// folder is an older hand install MelonLoader would load twice, so it's
+    /// renamed aside. Never fails the install.</summary>
+    private static void DisableShadowedLooseDlls(string gameDir, string modId, string targetDir)
     {
-        var names = Directory.GetFiles(modDir)
+        var names = Directory.GetFiles(targetDir)
             .Select(Path.GetFileName)
             .Where(n => n.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             .OrderBy(n => n, StringComparer.Ordinal);
@@ -287,29 +336,50 @@ public static class ModInstaller
         }
     }
 
-    /// <summary>Twin of install.py's collect_library_dependencies: deduplicated by
-    /// filename, and the same filename pinned to another sha256 or URL is a
-    /// conflict naming both mods.</summary>
-    public static List<LibraryDependency> CollectLibraryDependencies(IEnumerable<ModManifest> mods)
+    /// <summary>
+    /// Twin of install.py's collect_library_dependencies: the libraries the
+    /// closure's target builds pin, deduplicated by filename. The same filename
+    /// at another sha256 is a conflict naming both pinners, whether the other is
+    /// in the closure or a build recorded anywhere in this game folder that the
+    /// install leaves in place, since UserLibs/ is shared by every target.
+    /// </summary>
+    public static List<LibraryDependency> CollectLibraryDependencies(string gameDir, IReadOnlyList<ModManifest> mods, string target)
     {
         var byFilename = new Dictionary<string, (LibraryDependency Lib, string Owner)>();
         foreach (var mod in mods)
         {
-            foreach (var lib in mod.LibraryDependencies ?? new List<LibraryDependency>())
+            foreach (var lib in mod.ArtifactFor(target)?.LibraryDependencies ?? new List<LibraryDependency>())
             {
                 var key = ModPaths.SafeBasename(lib.Filename);
                 if (!byFilename.TryGetValue(key, out var existing))
-                {
                     byFilename[key] = (lib, mod.Name);
-                    continue;
-                }
-                if (!string.Equals(existing.Lib.Sha256, lib.Sha256, StringComparison.OrdinalIgnoreCase) ||
-                    ModManagerConstants.NormalizeUrl(existing.Lib.DownloadUrl) != ModManagerConstants.NormalizeUrl(lib.DownloadUrl))
-                    throw new ModManagerException(
-                        $"Library conflict on '{lib.Filename}': {existing.Owner} pins {existing.Lib.DownloadUrl} (sha {ShortSha(existing.Lib.Sha256)}...) but {mod.Name} pins {lib.DownloadUrl} (sha {ShortSha(lib.Sha256)}...). They can't both be installed.");
+                else
+                    CheckSameLibrary(existing.Lib, existing.Owner, lib, mod.Name);
+            }
+        }
+
+        // A recorded build this install replaces can't conflict: its pins go with it.
+        var versions = mods.ToDictionary(m => m.Id, m => m.Version);
+        foreach (var info in ScanMods(gameDir).Installed)
+        {
+            var rec = info.Record;
+            var replacing = versions.TryGetValue(rec.Id, out var version);
+            foreach (var installedTarget in rec.Installed?.Keys ?? Enumerable.Empty<string>())
+            {
+                if (replacing && (installedTarget == target || version != rec.Version)) continue;
+                foreach (var pin in rec.InstalledLibraries(installedTarget))
+                    if (byFilename.TryGetValue(pin.Filename, out var wanted))
+                        CheckSameLibrary(pin, $"{rec.Name} ({installedTarget}, installed)", wanted.Lib, wanted.Owner);
             }
         }
         return byFilename.Values.Select(v => v.Lib).ToList();
+    }
+
+    private static void CheckSameLibrary(LibraryDependency a, string aOwner, LibraryDependency b, string bOwner)
+    {
+        if (!string.Equals(a.Sha256, b.Sha256, StringComparison.OrdinalIgnoreCase))
+            throw new ModManagerException(
+                $"Library conflict on '{b.Filename}': {aOwner} pins {a.DownloadUrl} (sha {ShortSha(a.Sha256)}...) but {bOwner} pins {b.DownloadUrl} (sha {ShortSha(b.Sha256)}...). They can't both be installed.");
     }
 
     // install.py slices sha[:12], which never throws on a short value.
@@ -322,13 +392,12 @@ public static class ModInstaller
         var name = ModPaths.SafeBasename(lib.Filename);
         var dest = Path.Combine(ModPaths.UserLibsDir(gameDir), name);
         DownloadVerifyMove(http, lib.DownloadUrl, lib.Sha256, dest, deadlineUtc);
-        var sidecar = new
+        ModRecord.WriteFile(ModPaths.LibrarySidecarPath(gameDir, name), new JObject
         {
-            filename = name,
-            sha256 = lib.Sha256,
-            download_url = lib.DownloadUrl,
-        };
-        File.WriteAllText(ModPaths.LibrarySidecarPath(gameDir, name), JsonConvert.SerializeObject(sidecar, Formatting.Indented));
+            ["filename"] = name,
+            ["sha256"] = lib.Sha256,
+            ["download_url"] = lib.DownloadUrl,
+        });
     }
 
     /// <summary>VerifyModFiles for a UserLibs/ library, against its sidecar's
@@ -354,16 +423,16 @@ public static class ModInstaller
         return File.Exists(path) && string.Equals(Sha256File(path), expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Installs a resolved closure: dependencies, libraries, then the root.
-    /// Root last, so a failure partway leaves new dependencies beside the old root,
-    /// which still loads.</summary>
-    public static void InstallModClosure(string gameDir, NativeHttp http, ModManifest root, List<ModManifest> deps, List<LibraryDependency> libs, DateTime deadlineUtc)
+    /// <summary>Installs a resolved closure's target builds: dependencies,
+    /// libraries, then the root. Root last, so a failure partway leaves new
+    /// dependencies beside the old root, which still loads.</summary>
+    public static void InstallModClosure(string gameDir, NativeHttp http, ModManifest root, List<ModManifest> deps, List<LibraryDependency> libs, string target, DateTime deadlineUtc)
     {
         foreach (var m in deps)
-            InstallMod(gameDir, http, m, deadlineUtc);
+            InstallMod(gameDir, http, m, target, deadlineUtc);
         foreach (var lib in libs)
             InstallLibraryDependency(gameDir, http, lib, deadlineUtc);
-        InstallMod(gameDir, http, root, deadlineUtc);
+        InstallMod(gameDir, http, root, target, deadlineUtc);
     }
 
     /// <summary>Renames the record to manifest.disabled.json so MelonLoader skips
@@ -428,13 +497,9 @@ public static class ModInstaller
             record.Remove(ModScenesField.Name);
         else if (current != null)
             current.Replace(scenes);
-        else if (record["libraries"]?.Parent is { } libraries)   // install.py's _mod_record order
-            libraries.AddAfterSelf(new JProperty(ModScenesField.Name, scenes));
-        else if (record["files"]?.Parent is { } files)
-            files.AddBeforeSelf(new JProperty(ModScenesField.Name, scenes));
-        else
-            record.Add(ModScenesField.Name, scenes);
-        File.WriteAllText(path, record.ToString(Formatting.Indented));
+        else   // right after parity_required, as the record's key order has it
+            record.Property(ModParityField.Name).AddAfterSelf(new JProperty(ModScenesField.Name, scenes));
+        ModRecord.WriteFile(path, record);
         return true;
     }
 
