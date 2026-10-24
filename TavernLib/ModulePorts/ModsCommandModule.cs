@@ -26,14 +26,15 @@ public static class ModsCommandModule
 
     [ServerOnly]
     [Command("list", "Lists every community mod in Mods/ and its enabled/disabled state, including untracked ones this manager didn't install.")]
-    private static string List()
+    private static string List() => ListFor(MelonEnvironment.GameRootDirectory);
+
+    internal static string ListFor(string gameDir)
     {
-        var gameDir = MelonEnvironment.GameRootDirectory;
         var (installed, untracked) = ModInstaller.ScanMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
-        // Enabled mods only: a disabled one isn't loaded, so it's listed
-        // without a verdict rather than hashed for nothing.
+        // The server build of enabled mods only: that's what this server
+        // loads, and what reconcile repairs.
         var damaged = installed
             .Where(m => m.Enabled && ModInstaller.VerifyTarget(gameDir, m.Record, ModManagerConstants.TargetServer) == false)
             .Select(m => m.Record.Id)
@@ -42,7 +43,7 @@ public static class ModsCommandModule
         // Sorted: directory order is filesystem-dependent.
         var lines = installed
             .OrderBy(m => m.Record.Id, StringComparer.OrdinalIgnoreCase)
-            .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)}"
+            .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)} [installed: {Targets(m.Record)}]"
                          + (damaged.Contains(m.Record.Id) ? " [DAMAGED]" : "")
                          + (m.Record.Scenes != null ? $" [scenes: {string.Join(", ", m.Record.Scenes)}]" : ""))
             .Concat(untracked
@@ -51,12 +52,19 @@ public static class ModsCommandModule
         var listing = string.Join("\n", lines);
         if (damaged.Count == 0) return listing;
         // Reconcile reinstalls them at boot, so say so.
-        return listing + $"\n\n{damaged.Count} mod(s) no longer match the files that were installed "
+        return listing + $"\n\n{damaged.Count} mod(s) no longer match the server files that were installed "
                        + "(a cut-short write, or antivirus removing a DLL). They'll be reinstalled "
                        + "automatically on the next server restart.";
     }
 
     private static string State(bool enabled) => enabled ? "enabled" : "disabled";
+
+    // Only a mod listing server runs here; pc alone is a player's build sharing the folder.
+    private static string Targets(ModRecord record)
+    {
+        var targets = (record.Installed?.Keys ?? Enumerable.Empty<string>()).OrderBy(t => t, StringComparer.Ordinal).ToList();
+        return targets.Count == 0 ? "nothing" : string.Join(", ", targets);
+    }
 
     [ServerOnly]
     [Command("addrepo", "Registers a new pullable mod repo by its raw-content base URL (e.g. https://raw.githubusercontent.com/user/repo/main). Validates it serves a real mod index before adding it - this is the ONLY way a repo becomes pullable; naming it in a modlist's `repos` field is not enough.")]
