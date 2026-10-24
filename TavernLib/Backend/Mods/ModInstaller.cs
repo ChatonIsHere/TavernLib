@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -20,9 +21,11 @@ public static class ModInstaller
     private static string Sha256File(string path)
     {
         using var sha = SHA256.Create();
-        using var stream = File.OpenRead(path);
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 16, FileOptions.SequentialScan);
         var hash = sha.ComputeHash(stream);
-        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        var hex = new StringBuilder(hash.Length * 2);
+        foreach (var b in hash) hex.Append(b.ToString("x2"));
+        return hex.ToString();
     }
 
     /// <summary>
