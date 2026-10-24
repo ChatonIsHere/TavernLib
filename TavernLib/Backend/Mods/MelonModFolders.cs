@@ -9,18 +9,10 @@ using MelonLoader.Resolver;
 namespace TavernLib.Backend.Mods;
 
 /// <summary>
-/// MelonLoader decides which Mods/ subfolders to load exactly once, in
-/// Core.Initialize (MelonFolderHandler.ScanForFolders), before any plugin runs;
-/// only the loose Mods/*.dll files are listed later, at LoadMelons(Mods). A
-/// headless reconcile runs between the two, so on its own a mod it just installed
-/// into Mods/&lt;id&gt;/ wouldn't load until the next boot, and one it just disabled
-/// would load anyway - while the handshake, which reads the disk, told clients
-/// the opposite. <see cref="Sync"/> brings MelonLoader's folder list in line with
-/// what reconcile left on disk.
-///
-/// The list is a private field of MelonLoader 0.7's MelonFolderHandler, reached by
-/// reflection. If a MelonLoader update moves it, this says so and changes simply
-/// take effect on the next restart, as before.
+/// MelonLoader lists Mods/ subfolders once, before any plugin runs; only loose
+/// DLLs are listed later. Sync updates that list (a private field of MelonLoader
+/// 0.7's MelonFolderHandler, by reflection) to match what reconcile left on
+/// disk, so changes load this boot; if the field moves, they wait for a restart.
 /// </summary>
 internal static class MelonModFolders
 {

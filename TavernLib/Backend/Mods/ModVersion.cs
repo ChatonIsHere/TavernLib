@@ -4,11 +4,8 @@ using System.Linq;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>
-/// Exactly "MAJOR.MINOR.PATCH" - no pre-release/build metadata. A version that
-/// isn't exactly three numeric segments is rejected, so ordering never has to
-/// guess how to rank a pre-release tag.
-/// </summary>
+/// <summary>Exactly MAJOR.MINOR.PATCH, with no pre-release forms so ordering
+/// never guesses. Twin of version.py's _parse_version.</summary>
 public readonly struct ModVersion : IComparable<ModVersion>
 {
     public int Major { get; }

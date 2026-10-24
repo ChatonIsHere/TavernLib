@@ -4,11 +4,8 @@ namespace TavernLib.Backend.Mods;
 
 public class ModManagerException(string message) : Exception(message)
 {
-    /// <summary>An exception's message followed by each inner exception's, outermost
-    /// first. HttpClient's own message is always "An error occurred while sending the
-    /// request"; whether that was DNS, a refused connection or a TLS/certificate failure
-    /// is only in the inner exceptions, and without it a failed fetch can't be
-    /// diagnosed from the server log.</summary>
+    /// <summary>The message and every inner exception's, outermost first: the
+    /// useful cause of a failed fetch is often only in an inner one.</summary>
     public static string Describe(Exception e)
     {
         var message = e.Message;

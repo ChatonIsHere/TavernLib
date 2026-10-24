@@ -4,23 +4,16 @@ namespace TavernLib.Backend.Mods;
 
 public static class ModPaths
 {
-    /// <summary>
-    /// Last-line path-traversal guard, applied to a mod id and every install
-    /// filename right before it touches disk. Throws if name has any directory
-    /// part, contains '/' or '\' or ':', or is "." / "..". An id/filename from
-    /// an unreviewed third-party repo can't be trusted to be path-safe.
-    /// </summary>
+    /// <summary>Twin of layout.py's _safe_basename: the last-line traversal guard
+    /// for every id and filename from a repo before it touches disk.</summary>
     public static string SafeBasename(string name)
     {
         if (string.IsNullOrEmpty(name) || name == "." || name == "..")
             throw new ModManagerException($"Unsafe filename '{name}'.");
         if (name.Contains("/") || name.Contains("\\"))
             throw new ModManagerException($"Filename '{name}' must not contain a path separator.");
-        // A colon is a drive separator ("C:evil.dll" resolves somewhere else
-        // entirely) and, on NTFS, the alternate-data-stream separator:
-        // "mod.dll:x" opens a hidden stream on mod.dll rather than a file of
-        // its own. Path.GetFileName treats neither as a directory part, so the
-        // check below doesn't catch it. No legal Windows filename has one.
+        // "C:evil.dll" is another directory and "mod.dll:x" an NTFS stream, and
+        // Path.GetFileName treats neither colon as a directory part.
         if (name.Contains(":"))
             throw new ModManagerException($"Filename '{name}' must not contain a colon.");
         if (Path.GetFileName(name) != name)
@@ -49,11 +42,8 @@ public static class ModPaths
     /// Dot-prefixed so MelonLoader ignores it even if a crash leaves one behind.</summary>
     public static string StagingPath(string gameDir, string modId) => Path.Combine(ModsBase(gameDir), $".{SafeBasename(modId)}.installing");
 
-    /// <summary>Where a Mods/&lt;name&gt;/ folder we didn't install goes when a mod of
-    /// the same id needs that path. Dot-prefixed, so nothing that scans Mods/ -
-    /// MelonLoader, the installed lister, the untracked lister - sees what's
-    /// parked in here. An operator's own files are moved aside, never deleted,
-    /// because a headless install has nobody to ask.</summary>
+    /// <summary>Where a folder we didn't install is moved aside when its id's path
+    /// is needed. Dot-prefixed, so nothing that scans Mods/ sees it.</summary>
     public static string DisplacedBase(string gameDir) => Path.Combine(ModsBase(gameDir), ".displaced");
 
     public static string LibrarySidecarPath(string gameDir, string filename) => Path.Combine(UserLibsDir(gameDir), $"{filename}.meta.json");

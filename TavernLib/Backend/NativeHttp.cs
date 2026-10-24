@@ -7,17 +7,10 @@ using System.Text;
 namespace TavernLib.Backend;
 
 /// <summary>
-/// HTTP(S) GETs through the operating system's own WinHTTP instead of Mono's
-/// HttpClient. The mod manager fetches from OnEarlyInitializeMelon, before Unity
-/// has registered its TLS provider with Mono, so at that point HttpClient falls
-/// back to Mono's legacy TLS stack, which can't complete a handshake with GitHub:
-/// every repo fetch and download failed with SecureChannelFailure. WinHTTP uses
-/// the system's TLS on Windows and the host's TLS and CA store under Wine, so it
-/// works from the first moment and doesn't care what state Mono's TLS is in.
-///
-/// It also honours the system proxy itself (automatic proxy, PAC included), the
-/// job <see cref="WindowsProxy"/> does by hand for the HttpClient calls that
-/// remain.
+/// GETs through WinHTTP rather than Mono's HttpClient: reconcile runs before
+/// Unity registers its TLS provider, when Mono's legacy TLS can't complete a
+/// handshake with GitHub. WinHTTP uses the system's (or the Wine host's) TLS and
+/// proxy settings, PAC included. One instance is one session, reused for a pass.
 /// </summary>
 public sealed class NativeHttp : IDisposable
 {

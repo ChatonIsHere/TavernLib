@@ -13,10 +13,8 @@ public class SceneIndexPatches
         return null;
     }
 
-    /// <summary>The scene this process runs, by the names a mod manifest's
-    /// "scenes" uses. Read from the same launch arguments, in the same order, as
-    /// <see cref="ForcedSceneIndex"/>: the arguments are what actually pick the
-    /// scene, whatever server_settings.json says.</summary>
+    /// <summary>This process's scene by manifest "scenes" names, from the same
+    /// arguments as <see cref="ForcedSceneIndex"/>.</summary>
     internal static string ForcedSceneName()
     {
         if (CommandLineArguments.Contains(TavernArgs.TutorialScene)) return "tutorial";
