@@ -74,6 +74,9 @@ public static class ModManagerConstants
     /// boot has no user watching a progress bar to give up on.</summary>
     public const int ReconcileMaxSeconds = 300;
 
+    /// <summary>Largest repository.json or manifest body accepted.</summary>
+    public const long MaxJsonBytes = 8L * 1024 * 1024;
+
     /// <summary>Per-repo/manifest JSON fetch timeout.</summary>
     public const int JsonFetchTimeoutSeconds = 15;
 

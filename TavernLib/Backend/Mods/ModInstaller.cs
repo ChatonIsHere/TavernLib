@@ -32,12 +32,14 @@ public static class ModInstaller
     /// Goes through NativeHttp rather than HttpClient: this runs before Unity's
     /// TLS provider exists, when Mono can't complete an HTTPS handshake.
     /// </summary>
-    private static void DownloadFile(string url, string destPath, DateTime deadlineUtc)
+    private static void DownloadFile(NativeHttp http, string url, string destPath, DateTime deadlineUtc)
     {
         try
         {
             using var output = File.Create(destPath);
-            NativeHttp.Download(url, output, deadlineUtc, TimeSpan.FromSeconds(ModManagerConstants.DownloadTimeoutSeconds));
+            // Nothing legitimate is bigger than an archive is allowed to extract to.
+            http.Download(url, output, deadlineUtc, TimeSpan.FromSeconds(ModManagerConstants.DownloadTimeoutSeconds),
+                ModManagerConstants.ZipMaxTotalUncompressed);
         }
         catch (TimeoutException)
         {
@@ -55,13 +57,13 @@ public static class ModInstaller
     /// sha256, then hands the temp path to the caller to move or extract. Always
     /// cleaned up, so a failed verify/move leaves nothing behind.
     /// </summary>
-    private static void VerifiedDownload(string url, string sha256, string workDir, DateTime deadlineUtc, Action<string> withTempFile)
+    private static void VerifiedDownload(NativeHttp http, string url, string sha256, string workDir, DateTime deadlineUtc, Action<string> withTempFile)
     {
         Directory.CreateDirectory(workDir);
         var tmp = Path.Combine(workDir, $".tavern_dl_{Guid.NewGuid():N}.part");
         try
         {
-            DownloadFile(url, tmp, deadlineUtc);
+            DownloadFile(http, url, tmp, deadlineUtc);
             var actual = Sha256File(tmp);
             if (!string.Equals(actual, sha256 ?? "", StringComparison.OrdinalIgnoreCase))
                 throw new ModManagerException(
@@ -74,10 +76,10 @@ public static class ModInstaller
         }
     }
 
-    private static void DownloadVerifyMove(string url, string sha256, string destPath, DateTime deadlineUtc)
+    private static void DownloadVerifyMove(NativeHttp http, string url, string sha256, string destPath, DateTime deadlineUtc)
     {
         var destDir = Path.GetDirectoryName(destPath);
-        VerifiedDownload(url, sha256, destDir, deadlineUtc, tmp =>
+        VerifiedDownload(http, url, sha256, destDir, deadlineUtc, tmp =>
         {
             // Move, not copy: the temp already sits in destPath's own directory
             // (VerifiedDownload guarantees that), so this is a same-volume
@@ -298,7 +300,7 @@ public static class ModInstaller
     /// swapped into place only once complete, so a failed download/verify/extract
     /// never leaves a partial or half-upgraded mod folder.
     /// </summary>
-    public static void InstallMod(string gameDir, ModManifest mod, DateTime deadlineUtc)
+    public static void InstallMod(string gameDir, NativeHttp http, ModManifest mod, DateTime deadlineUtc)
     {
         var modDir = ModPaths.ModDirPath(gameDir, mod.Id);
         var staging = ModPaths.StagingPath(gameDir, mod.Id);
@@ -306,9 +308,9 @@ public static class ModInstaller
         try
         {
             if (mod.Package == "zip")
-                VerifiedDownload(mod.DownloadUrl, mod.Sha256, staging, deadlineUtc, tmp => SafeExtractZip(tmp, staging));
+                VerifiedDownload(http, mod.DownloadUrl, mod.Sha256, staging, deadlineUtc, tmp => SafeExtractZip(tmp, staging));
             else
-                DownloadVerifyMove(mod.DownloadUrl, mod.Sha256, Path.Combine(staging, mod.InstallName()), deadlineUtc);
+                DownloadVerifyMove(http, mod.DownloadUrl, mod.Sha256, Path.Combine(staging, mod.InstallName()), deadlineUtc);
             // Hash everything just assembled (the record isn't written yet, so
             // it never hashes itself) and put the map in the record, so
             // VerifyModFiles - and the launcher's Mod Manager, reading the same
@@ -396,11 +398,11 @@ public static class ModInstaller
 
     /// <summary>Same shape as InstallMod: downloads, verifies, writes
     /// UserLibs/&lt;safe filename&gt; plus its .meta.json sidecar.</summary>
-    public static void InstallLibraryDependency(string gameDir, LibraryDependency lib, DateTime deadlineUtc)
+    public static void InstallLibraryDependency(string gameDir, NativeHttp http, LibraryDependency lib, DateTime deadlineUtc)
     {
         var name = ModPaths.SafeBasename(lib.Filename);
         var dest = Path.Combine(ModPaths.UserLibsDir(gameDir), name);
-        DownloadVerifyMove(lib.DownloadUrl, lib.Sha256, dest, deadlineUtc);
+        DownloadVerifyMove(http, lib.DownloadUrl, lib.Sha256, dest, deadlineUtc);
         var sidecar = new
         {
             filename = name,
@@ -448,13 +450,13 @@ public static class ModInstaller
     /// leave a new root on disk without the dependencies it was resolved
     /// against, while the reconciler's fallback goes on describing the old one.
     /// </summary>
-    public static void InstallModClosure(string gameDir, ModManifest root, List<ModManifest> deps, List<LibraryDependency> libs, DateTime deadlineUtc)
+    public static void InstallModClosure(string gameDir, NativeHttp http, ModManifest root, List<ModManifest> deps, List<LibraryDependency> libs, DateTime deadlineUtc)
     {
         foreach (var m in deps)
-            InstallMod(gameDir, m, deadlineUtc);
+            InstallMod(gameDir, http, m, deadlineUtc);
         foreach (var lib in libs)
-            InstallLibraryDependency(gameDir, lib, deadlineUtc);
-        InstallMod(gameDir, root, deadlineUtc);
+            InstallLibraryDependency(gameDir, http, lib, deadlineUtc);
+        InstallMod(gameDir, http, root, deadlineUtc);
     }
 
     /// <summary>

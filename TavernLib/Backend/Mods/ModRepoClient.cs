@@ -12,7 +12,7 @@ namespace TavernLib.Backend.Mods;
 /// native-C# counterpart of modmanager.py's index/manifest fetching, following
 /// the same by-id / latest*.json resolution contract.
 /// </summary>
-public class ModRepoClient
+public class ModRepoClient(NativeHttp http)
 {
     /// <summary>
     /// The one per-repo trust check before a URL is ever registered as a
@@ -23,20 +23,22 @@ public class ModRepoClient
     /// </summary>
     public static void ValidateRepoIndex(string url)
     {
-        var index = GetJson($"{ModManagerConstants.NormalizeUrl(url)}/repository.json");
+        using var http = new NativeHttp();
+        var index = new ModRepoClient(http).GetJson($"{ModManagerConstants.NormalizeUrl(url)}/repository.json");
         if (index["mods"] is not JObject)
             throw new ModManagerException(
                 "That URL didn't serve a valid mod index (no 'mods' object in repository.json). " +
                 "Double-check it's the raw-content base URL of a correctly structured repo.");
     }
 
-    private static JObject GetJson(string url)
+    private JObject GetJson(string url)
     {
         try
         {
             // NativeHttp, not HttpClient: this runs before Unity's TLS provider
             // exists, when Mono can't complete an HTTPS handshake (see NativeHttp).
-            var body = NativeHttp.GetString(url, TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds));
+            var body = http.GetString(url, TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds),
+                ModManagerConstants.MaxJsonBytes);
             return JObject.Parse(body);
         }
         catch (Exception e)

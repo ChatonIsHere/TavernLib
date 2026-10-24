@@ -36,7 +36,8 @@ public static class ModReconciler
     {
         var deadline = DateTime.UtcNow.AddSeconds(ModManagerConstants.ReconcileMaxSeconds);
         var repos = trustedRepos.EffectiveRepoUrls();
-        var client = new ModRepoClient();
+        using var http = new NativeHttp();
+        var client = new ModRepoClient(http);
 
         List<ModSummary> index;
         try
@@ -81,7 +82,7 @@ public static class ModReconciler
                 }
                 break;
             }
-            keepIds.UnionWith(ReconcileOne(gameDir, entry, repos, index, client, installedById, deadline,
+            keepIds.UnionWith(ReconcileOne(gameDir, http, entry, repos, index, client, installedById, deadline,
                 scene, sceneSkipped));
         }
 
@@ -174,7 +175,7 @@ public static class ModReconciler
     /// working mod set.
     /// </summary>
     private static HashSet<string> ReconcileOne(
-        string gameDir, ModsListEntry entry, List<string> repos, List<ModSummary> index,
+        string gameDir, NativeHttp http, ModsListEntry entry, List<string> repos, List<ModSummary> index,
         ModRepoClient client, Dictionary<string, InstalledModInfo> installedById, DateTime deadline,
         string scene, HashSet<string> sceneSkipped)
     {
@@ -258,7 +259,7 @@ public static class ModReconciler
             var deps = ModDependencyResolver.ResolveDependencies(
                 new List<ModManifest> { target }, index, Fetch, ModManagerConstants.SideServer);
             var libs = ModInstaller.CollectLibraryDependencies(new[] { target }.Concat(deps));
-            ModInstaller.InstallModClosure(gameDir, target, deps, libs, deadline);
+            ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, deadline);
             TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version}.");
 
             keep.Add(target.Id);
