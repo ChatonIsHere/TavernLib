@@ -213,17 +213,13 @@ public static class ModInstaller
     /// calling a mod damaged with no evidence would reinstall every pre-existing
     /// install the first time a server booted on this build.
     ///
-    /// Re-hashes on every call, with no memo: the launcher needs one because its
-    /// UI re-asks on every window open, whereas this runs once per mod per
-    /// reconcile pass, inside a boot that is already downloading from the
-    /// network.
+    /// Re-hashes on every call; reconcile memoizes the verdict for its pass.
     /// </summary>
-    public static bool? VerifyModFiles(string gameDir, string modId)
+    public static bool? VerifyModFiles(string gameDir, ModRecord record)
     {
-        var record = ModRecord.Read(gameDir, modId);
         if (record?.Files == null || record.Files.Count == 0) return null;
 
-        var modDir = ModPaths.ModDirPath(gameDir, modId);
+        var modDir = ModPaths.ModDirPath(gameDir, record.Id);
         foreach (var entry in record.Files)
         {
             var path = Path.Combine(modDir, entry.Key.Replace('/', Path.DirectorySeparatorChar));
