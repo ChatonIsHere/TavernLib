@@ -8,28 +8,13 @@ namespace TavernLib.Backend.Mods;
 public static class ModDependencyResolver
 {
     /// <summary>
-    /// Resolves the full dependency closure of one or more root mods, returning a
-    /// flat, deduplicated list of ModManifests (the roots themselves not
-    /// included - the caller already has them).
-    ///
-    /// Minimum-Required-Version-with-Major-Lock: for each id -> min_version, keep
-    /// the versions the index lists in the required major that are &gt;= the
-    /// running minimum, take the highest, and fetch that one.
-    ///
-    /// Three failure modes: a circular dependency, a chain deeper than
-    /// MaxDependencyDepth, or a diamond conflict (two branches need the same id
-    /// at incompatible majors) - each throws a specific, actionable message.
-    ///
-    /// <paramref name="side"/> is the kind of process this closure is being
-    /// installed into (ModManagerConstants.SideClient/SideServer), mandatory with
-    /// no default. A dependency that can't run on that side is dropped, along
-    /// with everything only it needed. That is a derivation, not a guess:
-    /// server_side false means the mod cannot load in a server process at all, so
-    /// nothing running in a server process can hard-depend on it, and "M depends
-    /// on D" where D is client-only has exactly one coherent reading - M's client
-    /// half needs D. Must stay in lockstep with modmanager's resolve_dependencies:
-    /// if the launcher prunes a dependency here and this doesn't, the crash comes
-    /// back on headless hosts only.
+    /// Twin of resolve.py's resolve_dependencies; the verdicts must match. The
+    /// closure of the roots (roots excluded) by minimum-version-with-major-lock:
+    /// within the required major, the highest indexed version at or above the
+    /// running minimum. Cycles, chains deeper than MaxDependencyDepth and
+    /// cross-major demands throw. A dependency that can't run on
+    /// <paramref name="side"/> is pruned with everything only it needed: "M depends
+    /// on client-only D" can only mean M's client half needs D.
     /// </summary>
     public static List<ModManifest> ResolveDependencies(
         IReadOnlyList<ModManifest> roots,
@@ -76,9 +61,8 @@ public static class ModDependencyResolver
         {
             if (pruned.Contains(depId))
             {
-                // Already established this one can't run here. Still reported, so a
-                // second requirer of the same wrong-side dep isn't invisible, but
-                // not re-fetched and not re-walked.
+                // Already pruned: reported again so this requirer isn't invisible, but not
+                // re-fetched or re-walked.
                 TavernLogger.Warn($"{requirer} depends on '{depId}', which doesn't run on the {side}; skipped.");
                 return;
             }
@@ -130,10 +114,8 @@ public static class ModDependencyResolver
             var manifest = fetchManifest(depId, pickVersion, summary.SourceRepo);
             if (!RunsOnThisSide(manifest))
             {
-                // Pruned BEFORE its constraints are recorded, so a mod we aren't
-                // installing can't go on to raise a diamond conflict against a
-                // later requirer, and its own dependencies are never walked -
-                // nothing reached only through it is needed either.
+                // Pruned before its constraints are recorded, so a mod we aren't installing
+                // can't raise a diamond conflict, and nothing only it needed is walked.
                 pruned.Add(depId);
                 TavernLogger.Warn($"{requirer} depends on '{depId}' {pickVersion}, which doesn't run on the {side}; skipped, along with anything only it needed.");
                 return;

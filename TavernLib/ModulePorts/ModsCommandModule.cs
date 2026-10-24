@@ -39,9 +39,7 @@ public static class ModsCommandModule
             .Select(m => m.Record.Id)
             .ToHashSet();
 
-        // Sorted, and managed before untracked: this merges two directory scans
-        // whose order is filesystem-dependent, so without it the same Mods/
-        // folder can list differently between two runs.
+        // Sorted: directory order is filesystem-dependent.
         var lines = installed
             .OrderBy(m => m.Record.Id, StringComparer.OrdinalIgnoreCase)
             .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)}"
@@ -52,9 +50,7 @@ public static class ModsCommandModule
                 .Select(u => $"{u.Name} - {State(u.Enabled)} [untracked {u.Kind}]"));
         var listing = string.Join("\n", lines);
         if (damaged.Count == 0) return listing;
-        // Said explicitly because the state is otherwise alarming and the fix
-        // is already scheduled: reconcile re-checks the files map at boot and
-        // reinstalls anything that doesn't match.
+        // Reconcile reinstalls them at boot, so say so.
         return listing + $"\n\n{damaged.Count} mod(s) no longer match the files that were installed "
                        + "(a cut-short write, or antivirus removing a DLL). They'll be reinstalled "
                        + "automatically on the next server restart.";
