@@ -146,15 +146,20 @@ public static class ModReconciler
     /// re-checked - and `modmanager list` promises a damaged mod is reinstalled
     /// at the next boot, which has to hold for them too.
     /// </summary>
-    private static string FindDamage(string gameDir, string rootId, Dictionary<string, InstalledModInfo> installedById)
+    private static HashSet<string> InstalledClosure(string rootId, Dictionary<string, InstalledModInfo> installedById)
     {
         var closure = new HashSet<string>();
         AddInstalledClosure(rootId, installedById, closure);
-        foreach (var id in closure.OrderBy(x => x, StringComparer.Ordinal))
+        return closure;
+    }
+
+    private static string FindDamage(string gameDir, string rootId, Dictionary<string, InstalledModInfo> installedById)
+    {
+        foreach (var id in InstalledClosure(rootId, installedById).OrderBy(x => x, StringComparer.Ordinal))
         {
             if (!installedById.TryGetValue(id, out var info)) continue;
             if (ModInstaller.VerifyModFiles(gameDir, id) == false)
-                return $"'{id}' {info.Record.Version} is damaged";
+                return $"'{id}' {info.Record.Version} is damaged (its files no longer match what was installed)";
             foreach (var lib in info.Record.Libraries ?? new List<string>())
                 if (ModInstaller.VerifyLibrary(gameDir, lib) == false)
                     return $"library '{lib}' (pinned by '{id}') is damaged";
@@ -199,7 +204,27 @@ public static class ModReconciler
                 return keep;
             }
 
+            var fetched = new Dictionary<(string Id, string Version), ModManifest>();
+            ModManifest Fetch(string id, string version, string sourceRepo)
+            {
+                var key = (id, version);
+                if (!fetched.TryGetValue(key, out var m))
+                {
+                    m = client.FetchManifest(repos, id, version, sourceRepo);
+                    fetched[key] = m;
+                }
+                return m;
+            }
+
+            // Always the server side: this is TavernLib reconciling the mod set of
+            // the host it is running inside, which is a server by definition. A
+            // dependency that only runs on clients is pruned rather than installed
+            // into a process that would throw loading it.
+            List<ModManifest> ResolveDeps() => ModDependencyResolver.ResolveDependencies(
+                new List<ModManifest> { target }, index, Fetch, ModManagerConstants.SideServer);
+
             var needsInstall = existing == null || existing.Record.Version != target.Version;
+            List<ModManifest> deps = null;
 
             // Right version, wrong bytes. A version number is a claim about
             // files, and a mod half-eaten by antivirus or left truncated by a
@@ -213,10 +238,18 @@ public static class ModReconciler
             if (!needsInstall)
             {
                 var damage = FindDamage(gameDir, entry.Id, installedById);
+                // A dependency missing from disk may have been deleted, or may
+                // be one that doesn't run on servers and so was never installed;
+                // only resolving tells the two apart.
+                if (damage == null && InstalledClosure(entry.Id, installedById).Any(id => !installedById.ContainsKey(id)))
+                {
+                    deps = ResolveDeps();
+                    var lost = deps.FirstOrDefault(d => !installedById.ContainsKey(d.Id));
+                    if (lost != null) damage = $"dependency '{lost.Id}' is missing";
+                }
                 if (damage != null)
                 {
-                    TavernLogger.Warn($"mod reconcile: {damage} - files no longer match what was installed. "
-                                      + $"Reinstalling '{entry.Id}' and its dependencies.");
+                    TavernLogger.Warn($"mod reconcile: {damage}. Reinstalling '{entry.Id}' and its dependencies.");
                     needsInstall = true;
                 }
             }
@@ -240,24 +273,7 @@ public static class ModReconciler
                 return keep;
             }
 
-            var fetched = new Dictionary<(string Id, string Version), ModManifest>();
-            ModManifest Fetch(string id, string version, string sourceRepo)
-            {
-                var key = (id, version);
-                if (!fetched.TryGetValue(key, out var m))
-                {
-                    m = client.FetchManifest(repos, id, version, sourceRepo);
-                    fetched[key] = m;
-                }
-                return m;
-            }
-
-            // Always the server side: this is TavernLib reconciling the mod set of
-            // the host it is running inside, which is a server by definition. A
-            // dependency that only runs on clients is pruned rather than installed
-            // into a process that would throw loading it.
-            var deps = ModDependencyResolver.ResolveDependencies(
-                new List<ModManifest> { target }, index, Fetch, ModManagerConstants.SideServer);
+            deps ??= ResolveDeps();
             var libs = ModInstaller.CollectLibraryDependencies(new[] { target }.Concat(deps));
             ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, deadline);
             TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version}.");
