@@ -105,19 +105,21 @@ public static class ModInstaller
         if (zip.Entries.Count > ModManagerConstants.ZipMaxEntries)
             throw new ModManagerException($"This mod archive has {zip.Entries.Count} entries, over the {ModManagerConstants.ZipMaxEntries} limit; refusing to extract it.");
 
+        // A root-level manifest.json is a natural thing for a mod to ship (it's
+        // MelonLoader's folder marker too), but the install record is written
+        // under that name AFTER the tree is hashed, so extracting it would
+        // record bytes the record then overwrites: a permanent "damaged"
+        // verdict. Matched on the resolved path, case-insensitively, so
+        // "Manifest.json" and "./manifest.json" are caught too (NTFS treats
+        // them as the same file). install.py's _safe_extract_zip skips the same set.
+        var recordPaths = new[] { ModManagerConstants.RecordName, ModManagerConstants.DisabledRecordName }
+            .Select(n => Path.Combine(destRoot, n)).ToArray();
+
         long written = 0;
+        var buffer = new byte[81920];
         foreach (var entry in zip.Entries)
         {
             var name = entry.FullName;
-            // A root-level manifest.json is a natural thing for a mod to ship
-            // (it's MelonLoader's folder marker too), but the install record
-            // is written under exactly that name AFTER the extracted tree is
-            // hashed - so extracting it would record the archive's bytes and
-            // then overwrite them, a permanent "damaged" verdict that reinstalls
-            // the mod on every boot. modmanager.py's _safe_extract_zip skips
-            // the same names.
-            if (name == ModManagerConstants.RecordName || name == ModManagerConstants.DisabledRecordName)
-                continue;
             if (name.StartsWith("/") || name.StartsWith("\\"))
                 throw new ModManagerException($"Unsafe archive entry '{name}': absolute path.");
             // A colon anywhere, not just a drive letter in position 1: on NTFS
@@ -138,6 +140,9 @@ public static class ModInstaller
             var target = Path.GetFullPath(Path.Combine(destRoot, rel));
             if (target != destRoot && !target.StartsWith(destRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 throw new ModManagerException($"Unsafe archive entry '{name}': escapes the mod folder.");
+            var targetNoSep = target.TrimEnd(Path.DirectorySeparatorChar);
+            if (recordPaths.Any(p => string.Equals(p, targetNoSep, StringComparison.OrdinalIgnoreCase)))
+                continue;
 
             if (name.EndsWith("/") || name.EndsWith("\\"))
             {
@@ -148,7 +153,6 @@ public static class ModInstaller
 
             using var src = entry.Open();
             using var dst = File.Create(target);
-            var buffer = new byte[1024 * 1024];
             int read;
             while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
             {
