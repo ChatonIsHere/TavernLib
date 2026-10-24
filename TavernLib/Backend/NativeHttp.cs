@@ -19,45 +19,54 @@ namespace TavernLib.Backend;
 /// job <see cref="WindowsProxy"/> does by hand for the HttpClient calls that
 /// remain.
 /// </summary>
-public static class NativeHttp
+public sealed class NativeHttp : IDisposable
 {
     private const string UserAgent = "TavernLib";
+    private IntPtr _session;
 
     /// <summary>GETs url and returns the body as UTF-8 text. Throws on a non-2xx
-    /// status or when timeout passes.</summary>
-    public static string GetString(string url, TimeSpan timeout)
+    /// status, when timeout passes, or past maxBytes.</summary>
+    public string GetString(string url, TimeSpan timeout, long maxBytes)
     {
         using var body = new MemoryStream();
-        Get(url, DateTime.UtcNow + timeout, timeout, body);
+        Get(url, DateTime.UtcNow + timeout, timeout, body, maxBytes);
         return Encoding.UTF8.GetString(body.ToArray());
     }
 
     /// <summary>Streams url's body into destination. Any single step - connecting,
     /// waiting for the response, each read - may take at most stallTimeout, and
-    /// the whole transfer has to finish by deadlineUtc. Throws on a non-2xx status.</summary>
-    public static void Download(string url, Stream destination, DateTime deadlineUtc, TimeSpan stallTimeout) =>
-        Get(url, deadlineUtc, stallTimeout, destination);
+    /// the whole transfer has to finish by deadlineUtc. Throws on a non-2xx status
+    /// or past maxBytes.</summary>
+    public void Download(string url, Stream destination, DateTime deadlineUtc, TimeSpan stallTimeout, long maxBytes) =>
+        Get(url, deadlineUtc, stallTimeout, destination, maxBytes);
 
-    private static void Get(string url, DateTime deadlineUtc, TimeSpan stallTimeout, Stream destination)
+    public void Dispose()
+    {
+        if (_session == IntPtr.Zero) return;
+        WinHttpCloseHandle(_session);
+        _session = IntPtr.Zero;
+    }
+
+    private void Get(string url, DateTime deadlineUtc, TimeSpan stallTimeout, Stream destination, long maxBytes)
     {
         var uri = new Uri(url);
         if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
             throw new IOException($"Unsupported URL scheme '{uri.Scheme}'.");
 
-        var session = OpenSession();
         var connection = IntPtr.Zero;
         var request = IntPtr.Zero;
         try
         {
-            var timeoutMs = (int)Math.Min(RemainingMs(deadlineUtc, url), stallTimeout.TotalMilliseconds);
-            Check(WinHttpSetTimeouts(session, timeoutMs, timeoutMs, timeoutMs, timeoutMs), "WinHttpSetTimeouts");
-
-            connection = WinHttpConnect(session, uri.Host, (ushort)uri.Port, 0);
+            connection = WinHttpConnect(Session(), uri.Host, (ushort)uri.Port, 0);
             Check(connection != IntPtr.Zero, "WinHttpConnect");
 
             var flags = uri.Scheme == Uri.UriSchemeHttps ? WinHttpFlagSecure : 0u;
             request = WinHttpOpenRequest(connection, "GET", uri.PathAndQuery, null, null, IntPtr.Zero, flags);
             Check(request != IntPtr.Zero, "WinHttpOpenRequest");
+
+            // On the request, not the shared session.
+            var timeoutMs = (int)Math.Min(RemainingMs(deadlineUtc, url), stallTimeout.TotalMilliseconds);
+            Check(WinHttpSetTimeouts(request, timeoutMs, timeoutMs, timeoutMs, timeoutMs), "WinHttpSetTimeouts");
 
             // Redirects are followed by WinHTTP itself (GitHub release assets
             // redirect to their CDN), HTTPS-to-HTTP excepted.
@@ -70,12 +79,21 @@ public static class NativeHttp
             if (status < 200 || status > 299)
                 throw new IOException($"HTTP {status} from {uri.Host}");
 
+            uint length = 0;
+            size = sizeof(uint);
+            if (WinHttpQueryHeaders(request, WinHttpQueryContentLength | WinHttpQueryFlagNumber,
+                    IntPtr.Zero, ref length, ref size, IntPtr.Zero) && length > maxBytes)
+                throw TooLarge(uri, maxBytes);
+
             var buffer = new byte[1 << 16];
+            long total = 0;
             while (true)
             {
                 RemainingMs(deadlineUtc, url);
                 Check(WinHttpReadData(request, buffer, (uint)buffer.Length, out var read), "WinHttpReadData");
                 if (read == 0) break;
+                total += read;
+                if (total > maxBytes) throw TooLarge(uri, maxBytes);
                 destination.Write(buffer, 0, (int)read);
             }
         }
@@ -83,20 +101,24 @@ public static class NativeHttp
         {
             if (request != IntPtr.Zero) WinHttpCloseHandle(request);
             if (connection != IntPtr.Zero) WinHttpCloseHandle(connection);
-            WinHttpCloseHandle(session);
         }
     }
 
-    private static IntPtr OpenSession()
+    private static IOException TooLarge(Uri uri, long maxBytes) =>
+        new($"{uri.Host} sent more than {maxBytes / (1024 * 1024)} MB for {uri.AbsolutePath}; refusing it.");
+
+    // Opened on first use, so a failure surfaces per request like any other.
+    private IntPtr Session()
     {
+        if (_session != IntPtr.Zero) return _session;
         // Automatic proxy (Windows 8.1+) reads the same settings as the rest of
         // the system, PAC scripts included; anything older takes the
         // WinHTTP-configured proxy instead.
-        var session = WinHttpOpen(UserAgent, WinHttpAccessTypeAutomaticProxy, null, null, 0);
-        if (session == IntPtr.Zero)
-            session = WinHttpOpen(UserAgent, WinHttpAccessTypeDefaultProxy, null, null, 0);
-        Check(session != IntPtr.Zero, "WinHttpOpen");
-        return session;
+        _session = WinHttpOpen(UserAgent, WinHttpAccessTypeAutomaticProxy, null, null, 0);
+        if (_session == IntPtr.Zero)
+            _session = WinHttpOpen(UserAgent, WinHttpAccessTypeDefaultProxy, null, null, 0);
+        Check(_session != IntPtr.Zero, "WinHttpOpen");
+        return _session;
     }
 
     private static int RemainingMs(DateTime deadlineUtc, string url)
@@ -126,6 +148,7 @@ public static class NativeHttp
     private const uint WinHttpAccessTypeDefaultProxy = 0;
     private const uint WinHttpAccessTypeAutomaticProxy = 4;
     private const uint WinHttpFlagSecure = 0x00800000;
+    private const uint WinHttpQueryContentLength = 5;
     private const uint WinHttpQueryStatusCode = 19;
     private const uint WinHttpQueryFlagNumber = 0x20000000;
 
