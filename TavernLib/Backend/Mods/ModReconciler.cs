@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using MelonLoader.Utils;
 using TavernLib.Backend.Server.Configs;
 
 namespace TavernLib.Backend.Mods;
@@ -17,6 +19,61 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public static class ModReconciler
 {
+    /// <summary>
+    /// The headless boot entry point. Runs from OnEarlyInitializeMelon, after
+    /// MelonLoader has listed the Mods/ subfolders but before LoadMelons(Mods),
+    /// so it ends by syncing that list with the disk (MelonModFolders).
+    /// </summary>
+    public static void ReconcileModList(string modsListPathArg, string scene)
+    {
+        TavernLogger.Msg("mod reconcile: running before Mods/ is scanned (OnEarlyInitializeMelon).");
+        var started = false;
+        try
+        {
+            var path = Path.IsPathRooted(modsListPathArg)
+                ? modsListPathArg
+                : Path.Combine(TavernDirectories.ModdingTavern, modsListPathArg);
+
+            // A named file that's missing is a typo, not an empty list: reading on
+            // would create an empty modlist and disable every managed mod.
+            if (!File.Exists(path))
+            {
+                TavernLogger.Error($"mod reconcile: modlist file '{path}' does not exist; skipping reconcile and booting with Mods/ unchanged. Fix the /modlist path or create the file.");
+                return;
+            }
+
+            var modsList = new ModsListConfig(path);
+            modsList.ReadFromFile();
+            var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
+            trustedRepos.ReadFromFile();
+
+            started = true;
+            Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead, scene);
+        }
+        catch (Exception e)
+        {
+            TavernLogger.Error($"mod reconcile: couldn't read '{modsListPathArg}' or reconcile failed ({e}); booting with Mods/ unchanged.");
+        }
+        finally
+        {
+            // Even after a partial failure: the handshake reads the disk, so
+            // MelonLoader's folder list has to match whatever reconcile left there.
+            if (started) SyncModFolders();
+        }
+    }
+
+    private static void SyncModFolders()
+    {
+        try
+        {
+            MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
+        }
+        catch (Exception e)
+        {
+            TavernLogger.Error($"mod reconcile: couldn't update MelonLoader's mod folder list ({e}); changes take effect on the next restart.");
+        }
+    }
+
     /// <param name="scene">The scene this server runs ("normal", "quest" or
     /// "tutorial"); a listed mod whose manifest says it doesn't work there is
     /// skipped, and disabled if installed. Null checks nothing.</param>
