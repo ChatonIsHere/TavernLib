@@ -18,8 +18,7 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
             {
                 LastRead = new T();
                     
-                using var stream = File.CreateText(FilePath);
-                stream.WriteAsync(JsonConvert.SerializeObject(LastRead, Formatting.Indented));
+                File.WriteAllText(FilePath, JsonConvert.SerializeObject(LastRead, Formatting.Indented));
                     
                 return;
             }
@@ -43,8 +42,7 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
             {
                 LastRead ??= new T();
                     
-                using var stream = File.CreateText(FilePath);
-                stream.WriteAsync(JsonConvert.SerializeObject(LastRead, Formatting.Indented));
+                File.WriteAllText(FilePath, JsonConvert.SerializeObject(LastRead, Formatting.Indented));
                     
                 return;
             }
