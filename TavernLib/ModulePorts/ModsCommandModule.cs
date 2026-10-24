@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Alta.Console;
@@ -36,6 +37,7 @@ public static class ModsCommandModule
     {
         var config = new TrustedReposConfig(TavernDirectories.ModRepos);
         config.ReadFromFile();
+        config.LastRead.Repos ??= new Dictionary<string, string>();   // "repos": null in a hand-edited file
         return config;
     }
 
