@@ -208,6 +208,7 @@
     <Compile Include="Backend\Server\Configs\TavernServerConfig.cs" />
     <Compile Include="Backend\Server\Configs\TrustedReposConfig.cs" />
     <Compile Include="Backend\Server\Configs\UserConfigFile.cs" />
+    <Compile Include="Backend\Server\ServerBackup.cs" />
     <Compile Include="Backend\Server\ServerListingController.cs" />
     <Compile Include="Backend\Server\ServerListingPayload.cs" />
     <Compile Include="Backend\BackendUtils.cs" />
@@ -218,6 +219,7 @@
     <Compile Include="Backend\WindowsProxy.cs" />
     <Compile Include="Debugging\LogArchiver.cs" />
     <Compile Include="ModdingApi\TavernModAttribute.cs" />
+    <Compile Include="ModdingApi\Roles.cs" />
     <Compile Include="ModulePorts\ChunkCommandModule.cs" />
     <Compile Include="ModulePorts\DocumentModule.cs" />
     <Compile Include="ModulePorts\ModsCommandModule.cs" />
@@ -230,6 +232,7 @@
     <Compile Include="Patches\SceneIndexPatches.cs" />
     <Compile Include="Patches\PlayerLimitPatch.cs" />
     <Compile Include="Patches\ServerSettingsRolePatch.cs" />
+    <Compile Include="Patches\StatNamePatch.cs" />
     <Compile Include="Services\IService.cs" />
     <Compile Include="Patches\JoinRejectionRecorder.cs" />
     <Compile Include="Patches\PlayerJoinFilter.cs" />

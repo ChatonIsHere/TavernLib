@@ -17,7 +17,12 @@ public class ServerSettingsRolePatch
         var user = TavernServices.GetService<TavernManager>().UserConfig.GetUser(__instance.UserInfo.Username);
         var roles = user?.Roles ?? new List<string>();
         
-        __instance.ConnectionToRemotePlayer.Send(null, (MessageType)TavernMessages.ReceiveRoles, (_, stream) =>
+        SendRoles(__instance.ConnectionToRemotePlayer, roles);
+    }
+
+    internal static void SendRoles(Connection connection, IReadOnlyList<string> roles)
+    {
+        connection.Send(null, (MessageType)TavernMessages.ReceiveRoles, (_, stream) =>
         {
             var roleCount = roles.Count;
             stream.SerializeInteger(ref roleCount);
