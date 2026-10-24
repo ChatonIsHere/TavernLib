@@ -548,71 +548,30 @@ public static class ModInstaller
         return true;
     }
 
-    /// <summary>Every mod currently on disk (enabled or disabled), with each
-    /// one's current enabled/disabled state - needed to decide what reconcile
-    /// still has to enable/disable rather than just what's on disk.
-    ///
-    /// Matches modmanager.py's list_installed_mods exactly, and both rules
-    /// matter. Dot/tilde-prefixed folders are skipped: they're our own staging
-    /// dirs (Mods/.&lt;id&gt;.installing), MelonLoader ignores them, and a crash
-    /// mid-install can leave one behind holding a complete record - which would
-    /// otherwise report a mod as installed that isn't loaded. And the result is
-    /// keyed by record id, not by folder, so two folders carrying the same id
-    /// (a leftover staging dir, or an operator's hand-made backup copy) collapse
-    /// to one entry instead of producing a duplicate that makes callers'
-    /// ToDictionary throw.</summary>
-    public static List<InstalledModInfo> ListInstalledModsWithState(string gameDir)
-    {
-        var modsDir = ModPaths.ModsBase(gameDir);
-        if (!Directory.Exists(modsDir)) return new List<InstalledModInfo>();
-
-        var byId = new Dictionary<string, InstalledModInfo>();
-        foreach (var dir in Directory.GetDirectories(modsDir))
-        {
-            var id = Path.GetFileName(dir);
-            if (id.StartsWith(".") || id.StartsWith("~")) continue;
-            var rec = ReadRecordSkippingUnsafe(gameDir, id, out var enabled);
-            if (rec == null) continue;
-            byId[rec.Id] = new InstalledModInfo { Record = rec, Enabled = enabled };
-        }
-        return byId.Values.ToList();
-    }
-
     /// <summary>
-    /// Everything in Mods/ that MelonLoader will load but this installer doesn't
-    /// own: a loose root Mods/*.dll (the classic drag-a-dll-in manual install,
-    /// invisible to <see cref="ListInstalledModsWithState"/> since it only ever
-    /// looks at subfolders), or a first-level Mods/&lt;name&gt;/ folder carrying a
-    /// manifest this installer didn't write.
-    ///
-    /// The counterpart of modmanager.py's list_untracked_mods, so a headless
-    /// server reports the same set a launcher-run one shows in its Mod Manager
-    /// table. Surfacing and toggling only, same policy as the launcher: there's
-    /// no manifest we trust to resolve a version against, so nothing untracked
-    /// ever reaches install/update/uninstall (see ModsCommandModule), and
-    /// nothing automatic - reconcile included - enables or disables one. Only an
-    /// operator does.
-    ///
-    /// A folder counts on the EXISTENCE of a record file, not on it parsing:
-    /// MelonLoader's folder marker is an existence check with the content unread
-    /// (see <see cref="ModManagerConstants.RecordName"/>), so a folder whose
-    /// manifest.json is unparseable junk still loads and still has to be
-    /// reported.
+    /// One pass over Mods/: twin of install.py's list_installed_mods (Installed)
+    /// and list_untracked_mods (Untracked), which must report the same sets.
+    /// Dot/tilde-prefixed entries are skipped (staging dirs, which MelonLoader
+    /// ignores too). Installed is keyed by record id, so two folders carrying
+    /// one id collapse to one entry. A folder that isn't ours by
+    /// <see cref="ModRecord.Read(string, string, out bool)"/> is untracked on
+    /// the EXISTENCE of a record file, since MelonLoader loads it unread.
     /// </summary>
-    public static List<UntrackedMod> ListUntrackedMods(string gameDir)
+    public static (List<InstalledModInfo> Installed, List<UntrackedMod> Untracked) ScanMods(string gameDir)
     {
-        var found = new List<UntrackedMod>();
+        var byId = new Dictionary<string, InstalledModInfo>();
+        var untracked = new List<UntrackedMod>();
         var modsDir = ModPaths.ModsBase(gameDir);
-        if (!Directory.Exists(modsDir)) return found;
+        if (!Directory.Exists(modsDir)) return (new List<InstalledModInfo>(), untracked);
 
         foreach (var path in Directory.GetFiles(modsDir))
         {
             var name = Path.GetFileName(path);
             if (name.StartsWith(".") || name.StartsWith("~")) continue;
             if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-                found.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFile, Enabled = true });
+                untracked.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFile, Enabled = true });
             else if (name.EndsWith(".dll" + ModManagerConstants.DisabledDllSuffix, StringComparison.OrdinalIgnoreCase))
-                found.Add(new UntrackedMod
+                untracked.Add(new UntrackedMod
                 {
                     Name = name.Substring(0, name.Length - ModManagerConstants.DisabledDllSuffix.Length),
                     Kind = UntrackedMod.KindFile,
@@ -624,26 +583,20 @@ public static class ModInstaller
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith(".") || name.StartsWith("~")) continue;
-            // "Claimed" is tested per folder with the exact predicate
-            // ListInstalledModsWithState uses, rather than against the set of
-            // record ids it returned: that lister keys its result by the id
-            // INSIDE the record, so a folder whose name and record id disagree
-            // would miss an id-set lookup and get reported as untracked as well
-            // as installed. Same input, same question, one answer.
-            if (ReadRecordSkippingUnsafe(gameDir, name, out _) != null) continue;
-            if (File.Exists(Path.Combine(dir, ModManagerConstants.RecordName)))
-                found.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = true });
+            var rec = ReadRecordSkippingUnsafe(gameDir, name, out var enabled);
+            if (rec != null)
+                byId[rec.Id] = new InstalledModInfo { Record = rec, Enabled = enabled };
+            else if (File.Exists(Path.Combine(dir, ModManagerConstants.RecordName)))
+                untracked.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = true });
             else if (File.Exists(Path.Combine(dir, ModManagerConstants.DisabledRecordName)))
-                found.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = false });
-            // Neither present: an empty or junk folder MelonLoader wouldn't load
-            // either, so there's nothing to report.
+                untracked.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = false });
         }
-        return found;
+        return (byId.Values.ToList(), untracked);
     }
 }
 
 /// <summary>A mod sitting in Mods/ that MelonLoader will load but this installer
-/// doesn't own - see <see cref="ModInstaller.ListUntrackedMods"/>. Carries only
+/// doesn't own - see <see cref="ModInstaller.ScanMods"/>. Carries only
 /// what can be known without trusting a foreign manifest: what it's called, what
 /// shape it is, and whether it's currently loading. No id, version, or side,
 /// which is exactly why untracked mods are never planned, resolved, or
