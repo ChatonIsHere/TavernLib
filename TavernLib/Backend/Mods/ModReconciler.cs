@@ -179,7 +179,7 @@ public static class ModReconciler
         string scene, HashSet<string> sceneSkipped)
     {
         var keep = new HashSet<string>();
-        var existing = installedById.GetValueOrDefault(entry.Id);
+        installedById.TryGetValue(entry.Id, out var existing);
         try
         {
             var target = entry.PinnedVersion != null

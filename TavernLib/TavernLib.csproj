@@ -190,7 +190,6 @@
     <Compile Include="Backend\Auth\AuthPayloads.cs" />
     <Compile Include="Backend\Auth\ModParity.cs" />
     <Compile Include="Backend\Auth\RejectionPayload.cs" />
-    <Compile Include="Backend\Mods\DictionaryExtensions.cs" />
     <Compile Include="Backend\Mods\ModDataModel.cs" />
     <Compile Include="Backend\Mods\ModDependencyResolver.cs" />
     <Compile Include="Backend\Mods\ModInstaller.cs" />

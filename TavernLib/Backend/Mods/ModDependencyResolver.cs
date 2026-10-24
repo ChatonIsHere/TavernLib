@@ -121,8 +121,7 @@ public static class ModDependencyResolver
                 if (!reqBy.ContainsKey(depId)) reqBy[depId] = (requirer, minV);
             }
 
-            var prevChosen = chosen.GetValueOrDefault(depId);
-            if (prevChosen != null && prevChosen.Version == pickVersion)
+            if (chosen.TryGetValue(depId, out var prevChosen) && prevChosen.Version == pickVersion)
             {
                 Record();       // already selected at this exact version
                 return;
