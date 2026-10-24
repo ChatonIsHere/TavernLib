@@ -278,29 +278,26 @@ public static class ModInstaller
                 DownloadVerifyMove(http, artifact.DownloadUrl, artifact.Sha256, Path.Combine(staging, artifact.InstallName(mod.Id)), deadlineUtc);
             var entry = ModRecord.InstalledEntry(artifact, HashTree(staging));
 
-            var existing = ModRecord.ReadOwned(gameDir, mod.Id, out var existingPath);
+            var existing = ModRecord.ReadOwned(gameDir, mod.Id, out _);
             var installed = new Dictionary<string, JToken>();
-            string recordPath;
             if (existing?["installed"] is JObject kept && (string)existing["version"] == mod.Version)
             {
                 // Other targets' entries are kept as written, whichever installer wrote them.
                 foreach (var prop in kept.Properties().Where(p => p.Name != target))
                     installed[prop.Name] = prop.Value;
                 if (Directory.Exists(targetDir)) Directory.Delete(targetDir, recursive: true);
-                recordPath = existingPath;   // a disabled mod stays disabled
             }
             else
             {
                 ClearInstallPath(gameDir, mod.Id);
-                recordPath = ModPaths.ModRecordPath(gameDir, mod.Id);
             }
             Directory.CreateDirectory(modDir);
             Directory.Move(staging, targetDir);
 
             installed[target] = entry;
-            ModRecord.WriteFile(recordPath, ModRecord.Build(mod, installed));
-            // One record file afterwards; a whole replace is a fresh, enabled install.
-            if (recordPath == ModPaths.ModRecordPath(gameDir, mod.Id) && File.Exists(ModPaths.DisabledRecordPath(gameDir, mod.Id)))
+            // An install always leaves the mod enabled, as install.py's does.
+            ModRecord.WriteFile(ModPaths.ModRecordPath(gameDir, mod.Id), ModRecord.Build(mod, installed));
+            if (File.Exists(ModPaths.DisabledRecordPath(gameDir, mod.Id)))
                 File.Delete(ModPaths.DisabledRecordPath(gameDir, mod.Id));
         }
         finally
