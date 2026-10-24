@@ -53,8 +53,6 @@ public static class ModManagerConstants
     public const string SideClient = "client";
     public const string SideServer = "server";
 
-    public const int IndexTtlSeconds = 300;
-
     public const int ZipMaxEntries = 2000;
     public const long ZipMaxTotalUncompressed = 500L * 1024 * 1024;
 
