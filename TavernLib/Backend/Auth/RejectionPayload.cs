@@ -4,12 +4,8 @@ using Newtonsoft.Json;
 namespace TavernLib.Backend.Auth;
 
 /// <summary>
-/// The on-disk shape of last_rejection.json, written by this client's own
-/// game process right before it exits after a mod-mismatch denial
-/// (JoinRejectionRecorder), read by the launcher afterward. `missing` reuses
-/// ModParity.RequiredMod's {id, version, source_repo} shape verbatim - the
-/// same entries already embedded in the deny reason, just persisted to disk
-/// instead of only logged.
+/// last_rejection.json, written by JoinRejectionRecorder for the launcher;
+/// `missing` is the deny reason's ModParity.RequiredMod list.
 /// </summary>
 public class RejectionPayload
 {

@@ -6,29 +6,21 @@ using TavernLib.Backend.Mods;
 namespace TavernLib.Backend.Auth;
 
 /// <summary>
-/// Defense-in-depth: exact-version mod parity for a joining client. A
-/// well-behaved launcher should already have rendered its Mods/ to match the
-/// server before connecting - this exists for what bypasses or predates that
-/// (a direct connect, a stale pre-join check, a modified/older launcher).
+/// Exact-version mod parity for a joining client: defense in depth behind the
+/// launcher's pre-join render, for direct connects and stale or older launchers.
 /// </summary>
 public static class ModParity
 {
-    /// <summary>What a mod-mismatch denial reason starts with, before the
-    /// serialized mismatch list. This is a wire format, not a message: the
-    /// client-side JoinRejectionRecorder matches on it to decide whether a
-    /// rejection is recoverable, so producer and consumer read it from
-    /// here rather than each spelling it out.</summary>
+    /// <summary>Wire format, not a message: JoinRejectionRecorder matches on it to
+    /// recognise a recoverable rejection.</summary>
     public const string MismatchReasonPrefix = "Mod mismatch: ";
 
-    /// <summary>Whether a joining client is obliged to match this server mod:
-    /// it runs on clients AND the server requires parity on it. The one
-    /// definition of "enforced", so the join gate's early-exit and the
-    /// validation below can't drift apart.</summary>
+    /// <summary>Client-side and parity-required: the one definition, shared by the
+    /// join gate's early exit and ValidateClient.</summary>
     public static bool IsEnforced(ModHandshake.Entry mod) => mod.ClientSide && mod.ParityRequired;
 
-    /// <summary>Same {id, version, source_repo} shape the rejection payload
-    /// uses (source_repo is a hint, never authority) - so a mismatch list
-    /// computed here drops straight into that file with no reshaping.</summary>
+    /// <summary>The rejection payload's {id, version, source_repo} shape;
+    /// source_repo is a hint, never authority.</summary>
     public class RequiredMod
     {
         [JsonProperty("id")] public string Id;
@@ -37,30 +29,10 @@ public static class ModParity
     }
 
     /// <summary>
-    /// A server mod is enforced on the joining client when it has ClientSide
-    /// true AND ParityRequired, and then at that EXACT version - a build
-    /// within the same major can still diverge in ways that break a shared
-    /// session, so "close enough" isn't good enough.
-    ///
-    /// Mods with ParityRequired false are never enforced. The server runs them and
-    /// tells the client about them, but they're the client's choice: their two
-    /// halves work independently, so a client without one costs nobody else
-    /// anything. Refusing a join over one would make "recommended" mean the
-    /// same as "required".
-    ///
-    /// clientMods is id -> version, parsed from the client's own claim
-    /// (whatever its Mods/ currently has enabled); a client with no claim at
-    /// all is treated as having nothing, so every required mod mismatches
-    /// rather than silently passing. Server-only mods (ClientSide false) are
-    /// never checked here - the client's own extra client-only mods are its own
-    /// business. Returns the mods the client is missing or holding at the wrong
-    /// version; empty means parity holds.
-    ///
-    /// An enforced mod whose record carries no version always mismatches. Left
-    /// to the plain comparison, a client without the mod would hold "no
-    /// version" too and match it - the same empty-equals-empty hole upstream
-    /// closed for tokens in PlayerJoinFilter. The client launcher's
-    /// _verify_mod_parity applies the same rule.
+    /// The enforced server mods the client's claim (id -> version) lacks or holds
+    /// at another version; empty means parity holds. A missing claim is an empty
+    /// one, and an enforced mod with no recorded version always mismatches, as in
+    /// the launcher's _verify_mod_parity, so "no version" can't match "no mod".
     /// </summary>
     public static List<RequiredMod> ValidateClient(List<ModHandshake.Entry> serverMods, Dictionary<string, string> clientMods)
     {

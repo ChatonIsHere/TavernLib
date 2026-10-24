@@ -142,10 +142,7 @@ internal class AuthManager
         await WriteResponse(stream, response);
     }
 
-    /// <summary>Sent only on request - a client's mods_hash cache miss, or
-    /// right before a join - and length-prefixed rather than a plain
-    /// single-recv reply, since a large installed-mods list can genuinely
-    /// outgrow one recv's buffer (see AuthPayloads.ModsListResponse).</summary>
+    /// <summary>Length-prefixed: the full mods list can outgrow one recv.</summary>
     private async Task WriteModsListResponse(Stream stream)
     {
         var (_, _, mods, untracked) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
@@ -344,12 +341,8 @@ internal class AuthManager
         }
     }
 
-    /// <summary>Length-prefixed write: a 4-byte big-endian byte count, then the
-    /// JSON body - so the client can read the exact number of bytes rather than
-    /// relying on a single recv, which can return a partial message no matter
-    /// the buffer size. Only used for a response that can genuinely outgrow a
-    /// single recv (the full mods list); everything else on this port stays
-    /// small enough for the plain WriteResponse above.</summary>
+    /// <summary>A 4-byte big-endian length, then the JSON body, so the client reads
+    /// exactly that many bytes rather than trusting one recv.</summary>
     private async Task WriteFramedResponse(Stream stream, object response)
     {
         try
@@ -359,11 +352,8 @@ internal class AuthManager
             var header = BitConverter.GetBytes(body.Length);
             if (BitConverter.IsLittleEndian) Array.Reverse(header);
 
-            // Size only, never the body. This port answers mods_list without
-            // authentication (it is discovery data, deliberately), so anything
-            // that can reach it can make the server write a line to its log on
-            // demand - and the body here is the whole installed-mods list,
-            // which for a well-stocked server is kilobytes per request.
+            // Size only: mods_list is unauthenticated, so logging the body would let
+            // anyone write kilobytes to the log on demand.
             TavernLogger.Msg($"Writing framed response to joining client ({body.Length} bytes)");
 
             await stream.WriteAsync(header, 0, header.Length);

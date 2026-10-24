@@ -6,14 +6,9 @@ using TavernLib.Backend.Mods;
 namespace TavernLib.Backend.Server.Configs;
 
 /// <summary>
-/// The locally-maintained set of repos this server is actually allowed to pull
-/// mods from - keyed by their "Author/Repo" shorthand, mapping to the real base
-/// URL. This is deliberately separate from the modlist file (see ModsList):
-/// only ModsCommandModule's `addrepo` command adds an entry here, after a live
-/// fetch-and-validate check of the URL, exactly mirroring modmanager.py's
-/// add_repo. A shorthand appearing in a modlist's `repos` field is never
-/// enough on its own to add or use a source - it's looked up here, and if it
-/// isn't registered, that source is simply unavailable.
+/// mod_repos.json: the repos this server may pull from, shorthand -> base URL.
+/// Only `modmanager addrepo` adds one, after fetching and validating its index;
+/// a modlist naming a repo never does.
 /// </summary>
 public class TrustedRepos
 {
