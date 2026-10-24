@@ -34,6 +34,11 @@ public static class ModPaths
     /// <summary>A mod's own folder: Mods/&lt;id&gt;/.</summary>
     public static string ModDirPath(string gameDir, string modId) => Path.Combine(ModsBase(gameDir), SafeBasename(modId));
 
+    /// <summary>Where one target's build lives: Mods/&lt;id&gt;/.&lt;target&gt;/.
+    /// Dot-prefixed, so MelonLoader skips it until MelonModFolders adds it back.</summary>
+    public static string TargetDirPath(string gameDir, string modId, string target) =>
+        Path.Combine(ModDirPath(gameDir, modId), "." + target);
+
     public static string ModRecordPath(string gameDir, string modId) => Path.Combine(ModDirPath(gameDir, modId), ModManagerConstants.RecordName);
 
     public static string DisabledRecordPath(string gameDir, string modId) => Path.Combine(ModDirPath(gameDir, modId), ModManagerConstants.DisabledRecordName);

@@ -15,9 +15,10 @@ public static class ModParity
     /// recognise a recoverable rejection.</summary>
     public const string MismatchReasonPrefix = "Mod mismatch: ";
 
-    /// <summary>Client-side and parity-required: the one definition, shared by the
+    /// <summary>Built for pc and parity-required: the one definition, shared by the
     /// join gate's early exit and ValidateClient.</summary>
-    public static bool IsEnforced(ModHandshake.Entry mod) => mod.ClientSide && mod.ParityRequired;
+    public static bool IsEnforced(ModHandshake.Entry mod) =>
+        mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetPc);
 
     /// <summary>The rejection payload's {id, version, source_repo} shape;
     /// source_repo is a hint, never authority.</summary>

@@ -25,17 +25,18 @@ public static class ModHandshake
     {
         [JsonProperty("id")] public string Id { get; set; }
         [JsonProperty("version")] public string Version { get; set; }
-        [JsonProperty("client_side")] public bool ClientSide { get; set; }
-        [JsonProperty("server_side")] public bool ServerSide { get; set; }
-
         [JsonProperty("parity_required")] public bool ParityRequired { get; set; }
 
         /// <summary>A hint for which repo to suggest adding; never a pull source.</summary>
         [JsonProperty("source_repo")] public string SourceRepo { get; set; }
 
+        /// <summary>Every known target the record's artifacts build, sorted: what
+        /// a client decides whether the mod concerns it by. Not in the hash.</summary>
+        [JsonProperty("targets")] public List<string> Targets { get; set; }
+
         /// <summary>Advisory, and not in the hash: lets a client notice the same
-        /// version built from different bytes. Empty when the record predates it.</summary>
-        [JsonProperty("sha256")] public string Sha256 { get; set; }
+        /// version built from different bytes.</summary>
+        [JsonProperty("target_sha256")] public SortedDictionary<string, string> TargetSha256 { get; set; }
 
         /// <summary>Omitted when null (every scene), as install.py omits it; not in
         /// the hash.</summary>
@@ -97,19 +98,24 @@ public static class ModHandshake
     private static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) BuildSnapshot(string gameDir)
     {
         var (installed, untrackedMods) = ModInstaller.ScanMods(gameDir);
+        // Only what this server runs: a build installed just for pc in the same
+        // folder is invisible to it.
         var mods = installed
-            .Where(m => m.Enabled)
+            .Where(m => m.Enabled && m.Record.Lists(ModManagerConstants.TargetServer))
             .OrderBy(m => m.Record.Id, StringComparer.Ordinal)
-            .Select(m => new Entry
+            .Select(m =>
             {
-                Id = m.Record.Id,
-                Version = m.Record.Version,
-                ClientSide = m.Record.ClientSide,
-                ServerSide = m.Record.ServerSide,
-                ParityRequired = m.Record.ParityRequired,
-                SourceRepo = m.Record.SourceRepo,
-                Sha256 = m.Record.Sha256 ?? "",
-                Scenes = m.Record.Scenes
+                var targets = m.Record.ArtifactTargets();
+                return new Entry
+                {
+                    Id = m.Record.Id,
+                    Version = m.Record.Version,
+                    ParityRequired = m.Record.ParityRequired,
+                    SourceRepo = m.Record.SourceRepo,
+                    Targets = targets.Keys.ToList(),
+                    TargetSha256 = targets,
+                    Scenes = m.Record.Scenes
+                };
             })
             .ToList();
 
