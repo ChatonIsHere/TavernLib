@@ -150,7 +150,8 @@ public class ModRepoClient
     /// manifests/&lt;author&gt;/&lt;repo&gt;/ across the configured repos in preference
     /// order, returning the first that parses.
     /// </summary>
-    private ModManifest FetchManifestLeaf(IEnumerable<string> repoBases, string modId, string leaf, string preferRepo = null, string what = null)
+    private ModManifest FetchManifestLeaf(IEnumerable<string> repoBases, string modId, string leaf, string preferRepo, string what,
+        string expectedVersion = null)
     {
         var idx = modId.IndexOf('.');
         if (idx < 0)
@@ -177,7 +178,16 @@ public class ModRepoClient
                 continue;
             }
             var m = ModManifest.FromJson(data, ModManagerConstants.NormalizeUrl(baseUrl));
-            if (m != null) return m;
+            if (m == null) continue;
+            // A repo serving another mod's (or version's) manifest at this path
+            // is a failure of that repo, not something to install.
+            if (m.Id != modId || (expectedVersion != null && m.Version != expectedVersion))
+            {
+                lastErr = new ModManagerException(
+                    $"{url} served '{m.Id}' {m.Version}, not the requested '{modId}' {expectedVersion ?? "(latest)"}.");
+                continue;
+            }
+            return m;
         }
         throw new ModManagerException(
             $"Couldn't find {what ?? modId} in any configured repository." +
@@ -186,7 +196,7 @@ public class ModRepoClient
 
     /// <summary>Loads the full manifest for an exact version.</summary>
     public ModManifest FetchManifest(IEnumerable<string> repoBases, string modId, string version, string preferRepo = null) =>
-        FetchManifestLeaf(repoBases, modId, $"{version}.json", preferRepo, $"mod '{modId}' version {version}");
+        FetchManifestLeaf(repoBases, modId, $"{version}.json", preferRepo, $"mod '{modId}' version {version}", version);
 
     /// <summary>
     /// Fetches a single mod's manifest by id via the latest*.json pointer files.
