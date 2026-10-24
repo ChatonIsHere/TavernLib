@@ -9,11 +9,9 @@ using Newtonsoft.Json.Linq;
 namespace TavernLib.Backend.Mods;
 
 /// <summary>
-/// The record written to Mods/&lt;id&gt;/manifest.json: the fetched manifest verbatim
-/// (so status/uninstall need no re-fetch) plus install fields. Kept a plain JSON
-/// object on purpose - it's also MelonLoader's folder marker. Keep this shape
-/// stable; it's read by both this installer and the Python launcher's
-/// modmanager.py (same on-disk convention, two implementations).
+/// Mods/&lt;id&gt;/manifest.json, also MelonLoader's folder marker: the fetched
+/// manifest plus install fields. Twin of install.py's _mod_record; names and
+/// order are the on-disk contract.
 /// </summary>
 public class ModRecord
 {
@@ -41,31 +39,14 @@ public class ModRecord
     /// uninstall reference-counts UserLibs/ files by these.</summary>
     [JsonProperty("libraries")] public List<string> Libraries { get; set; } = new();
 
-    /// <summary>The scenes this mod works in (see <see cref="ModScenesField"/>).
-    /// Omitted when null, meaning every scene - the same as the launcher's
-    /// record, and what every record written before the field existed already
-    /// says. Like Files, kept out of the handshake fingerprint.</summary>
+    /// <summary>Omitted when null (every scene), as install.py omits it.</summary>
     [JsonProperty("scenes", NullValueHandling = NullValueHandling.Ignore)]
     public List<string> Scenes { get; set; }
 
-    /// <summary>{relative path (forward slashes): sha256} for everything the
-    /// installer assembled into this mod's folder, hashed out of staging right
-    /// before this record was written into it (so the record is never part of
-    /// its own map). What <see cref="ModInstaller.VerifyModFiles"/> checks, and
-    /// the same map modmanager.py's verify_mod_files reads - a mod installed
-    /// here shows up as Damaged in the launcher's Mod Manager, and one installed
-    /// there is checked by reconcile on this side.
-    ///
-    /// Null (absent), never an empty object, when there's nothing to check: a
-    /// record written before this field existed. Deserialization leaves it null
-    /// rather than defaulting to an empty map for exactly that reason - "no
-    /// evidence" has to stay distinguishable from "evidence of nothing", since
-    /// the second would call every file legitimately missing. Both readers treat
-    /// absent as "no damage detection", never as damaged.
-    ///
-    /// Kept out of the handshake fingerprint deliberately - see
-    /// <see cref="ModHandshake"/>, whose hash must stay byte-identical to the
-    /// launcher's.</summary>
+    /// <summary>{forward-slash relative path: lowercase sha256} of what the install
+    /// placed, hashed before the record was written. Absent, never empty, on a
+    /// record that predates it, so "no evidence" can't read as "evidence of
+    /// nothing". Not in the handshake hash.</summary>
     [JsonProperty("files", NullValueHandling = NullValueHandling.Ignore)]
     public Dictionary<string, string> Files { get; set; }
 
