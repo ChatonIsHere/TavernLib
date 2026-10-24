@@ -16,6 +16,8 @@ public class ServerSettings
     [JsonProperty(PropertyName = "tutorial_scene")] public bool TutorialScene { get; private set; }
     [JsonProperty(PropertyName = "region")] public string Region { get; private set; } = "unknown";
     [JsonProperty(PropertyName = "garbage_collection_timer")] public float GarbageCollectionTimer { get; private set; } = 30f;
+    [JsonProperty(PropertyName = "server_backup_time")] public float ServerBackupTime { get; private set; }
+    [JsonProperty(PropertyName = "server_backup_max_backups")] public int ServerBackupMaxBackups { get; private set; }
 }
 
 public class ServerSettingsConfig(string filePath) : ServerConfigFile<ServerSettings>(filePath)
