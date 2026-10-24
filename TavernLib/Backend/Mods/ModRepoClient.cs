@@ -115,7 +115,7 @@ public class ModRepoClient
                     merged[key] = (s, true);
                 else if (cur.FromDefault && !fromDefault)
                     { /* keep the default */ }
-                else if (ModVersion.Parse(s.Highest()) > ModVersion.Parse(cur.Summary.Highest()))
+                else if (s.Highest > cur.Summary.Highest)
                     merged[key] = (s, fromDefault);
             }
         }
