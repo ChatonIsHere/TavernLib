@@ -508,39 +508,36 @@ public static class ModInstaller
     }
 
     /// <summary>
-    /// Rewrites an installed mod's record from a freshly fetched manifest,
-    /// without touching a single file the mod ships. For fields that describe
-    /// the mod rather than its contents and can therefore change without the
-    /// version changing - parity_required is the one that matters, since a
-    /// server enforces it on joining clients and would otherwise keep reporting
-    /// whatever was true the day it installed.
-    ///
-    /// Writes to whichever record the mod currently has, so a disabled mod stays
-    /// disabled. Returns whether anything actually changed.
-    ///
-    /// This is a full deserialize/reserialize, so every field the record carries
-    /// has to be modelled on <see cref="ModRecord"/> or it is silently dropped
-    /// on the way back out. That's why the files map is modelled here even
-    /// though this method never touches it: a mod the LAUNCHER installed, on a
-    /// game folder a headless server later reconciles, would otherwise lose its
-    /// damage detection the first time this ran over it.
+    /// Catches an installed record up on the metadata that can change without a
+    /// version bump (parity_required, scenes), writing to whichever record file
+    /// the mod has so a disabled mod stays disabled. Patched in place, so fields
+    /// this side doesn't model survive and key order stays install.py's.
+    /// Returns whether anything changed.
     /// </summary>
     public static bool RefreshRecordMetadata(string gameDir, ModManifest manifest)
     {
-        var enabledPath = ModPaths.ModRecordPath(gameDir, manifest.Id);
-        var path = File.Exists(enabledPath) ? enabledPath : ModPaths.DisabledRecordPath(gameDir, manifest.Id);
-        if (!File.Exists(path)) return false;
+        if (ModRecord.Read(gameDir, manifest.Id, out var enabled)?.Id != manifest.Id) return false;
+        var path = enabled ? ModPaths.ModRecordPath(gameDir, manifest.Id) : ModPaths.DisabledRecordPath(gameDir, manifest.Id);
+        var record = ModRecord.ParseObject(path);
+        if (record == null) return false;
 
-        var record = JsonConvert.DeserializeObject<ModRecord>(File.ReadAllText(path));
-        if (record == null || record.Id != manifest.Id) return false;
+        var scenes = manifest.Scenes == null ? null : new JArray(manifest.Scenes);
+        var current = record[ModScenesField.Name];
+        var scenesSame = scenes == null ? current == null || current.Type == JTokenType.Null : JToken.DeepEquals(current, scenes);
+        if ((bool)record[ModParityField.Name] == manifest.ParityRequired && scenesSame) return false;
 
-        var scenesSame = (record.Scenes == null && manifest.Scenes == null)
-            || (record.Scenes != null && manifest.Scenes != null && record.Scenes.SequenceEqual(manifest.Scenes));
-        if (record.ParityRequired == manifest.ParityRequired && scenesSame) return false;
-
-        record.ParityRequired = manifest.ParityRequired;
-        record.Scenes = manifest.Scenes?.ToList();
-        record.WriteTo(path);
+        record[ModParityField.Name] = manifest.ParityRequired;
+        if (scenes == null)
+            record.Remove(ModScenesField.Name);
+        else if (current != null)
+            current.Replace(scenes);
+        else if (record["libraries"]?.Parent is { } libraries)   // install.py's _mod_record order
+            libraries.AddAfterSelf(new JProperty(ModScenesField.Name, scenes));
+        else if (record["files"]?.Parent is { } files)
+            files.AddBeforeSelf(new JProperty(ModScenesField.Name, scenes));
+        else
+            record.Add(ModScenesField.Name, scenes);
+        File.WriteAllText(path, record.ToString(Formatting.Indented));
         return true;
     }
 
