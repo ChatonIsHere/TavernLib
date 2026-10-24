@@ -124,14 +124,15 @@ public class ModRepoClient(NativeHttp http)
         return merged.Values.Select(v => v.Summary).ToList();
     }
 
-    /// <summary>prefer_repo first (the repo a previous fetch/install already used), then
-    /// the rest of repoBases, de-duplicated.</summary>
+    /// <summary>repoBases with preferRepo moved to the front. A preference only
+    /// reorders the trusted repos; a hint naming any other repo is ignored.</summary>
     private static List<string> RepoOrder(IEnumerable<string> repoBases, string preferRepo)
     {
+        static bool Same(string a, string b) => ModManagerConstants.NormalizeUrl(a) == ModManagerConstants.NormalizeUrl(b);
+        var bases = repoBases.ToList();
         var order = new List<string>();
-        if (!string.IsNullOrEmpty(preferRepo)) order.Add(preferRepo);
-        foreach (var b in repoBases)
-            if (!order.Any(x => ModManagerConstants.NormalizeUrl(x) == ModManagerConstants.NormalizeUrl(b)))
+        foreach (var b in bases.Where(b => preferRepo != null && Same(b, preferRepo)).Concat(bases))
+            if (!order.Any(x => Same(x, b)))
                 order.Add(b);
         return order;
     }
