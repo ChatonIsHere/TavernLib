@@ -31,8 +31,6 @@ namespace TavernLib.Backend.Server.Configs;
 /// </summary>
 public class ModsList
 {
-    [JsonProperty("schema")] public int Schema { get; set; } = 1;
-    [JsonProperty("repos")] public List<string> Repos { get; set; } = new();
     [JsonProperty("mods")] public List<string> Mods { get; set; } = new();
 }
 

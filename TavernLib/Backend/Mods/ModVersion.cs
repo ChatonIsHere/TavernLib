@@ -9,7 +9,7 @@ namespace TavernLib.Backend.Mods;
 /// isn't exactly three numeric segments is rejected, so ordering never has to
 /// guess how to rank a pre-release tag.
 /// </summary>
-public readonly struct ModVersion : IComparable<ModVersion>, IEquatable<ModVersion>
+public readonly struct ModVersion : IComparable<ModVersion>
 {
     public int Major { get; }
     public int Minor { get; }
@@ -67,24 +67,10 @@ public readonly struct ModVersion : IComparable<ModVersion>, IEquatable<ModVersi
         return Patch.CompareTo(other.Patch);
     }
 
-    public bool Equals(ModVersion other) => Major == other.Major && Minor == other.Minor && Patch == other.Patch;
-    public override bool Equals(object obj) => obj is ModVersion other && Equals(other);
-    public override int GetHashCode()
-    {
-        unchecked
-        {
-            var hash = Major;
-            hash = hash * 397 ^ Minor;
-            hash = hash * 397 ^ Patch;
-            return hash;
-        }
-    }
     public override string ToString() => $"{Major}.{Minor}.{Patch}";
 
     public static bool operator <(ModVersion a, ModVersion b) => a.CompareTo(b) < 0;
     public static bool operator >(ModVersion a, ModVersion b) => a.CompareTo(b) > 0;
     public static bool operator <=(ModVersion a, ModVersion b) => a.CompareTo(b) <= 0;
     public static bool operator >=(ModVersion a, ModVersion b) => a.CompareTo(b) >= 0;
-    public static bool operator ==(ModVersion a, ModVersion b) => a.Equals(b);
-    public static bool operator !=(ModVersion a, ModVersion b) => !a.Equals(b);
 }

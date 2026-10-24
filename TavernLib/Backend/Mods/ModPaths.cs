@@ -31,13 +31,6 @@ public static class ModPaths
     /// <summary>The Mods/ path, without creating it.</summary>
     public static string ModsBase(string gameDir) => Path.Combine(gameDir, "Mods");
 
-    public static string ModsDir(string gameDir)
-    {
-        var d = ModsBase(gameDir);
-        Directory.CreateDirectory(d);
-        return d;
-    }
-
     public static string UserLibsDir(string gameDir)
     {
         var d = Path.Combine(gameDir, "UserLibs");
