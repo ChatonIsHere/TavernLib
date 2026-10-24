@@ -32,13 +32,10 @@ public static class ModsCommandModule
         var (installed, untracked) = ModInstaller.ScanMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
-        // Re-hashed here rather than read off a cached answer: this is an
-        // operator asking, once, on demand - the same gesture the launcher's
-        // Refresh button makes, and the only moment a headless server has to
-        // report damage between restarts. Everything else that cares (reconcile)
-        // asks at boot.
+        // Enabled mods only: a disabled one isn't loaded, so it's listed
+        // without a verdict rather than hashed for nothing.
         var damaged = installed
-            .Where(m => ModInstaller.VerifyModFiles(gameDir, m.Record.Id) == false)
+            .Where(m => m.Enabled && ModInstaller.VerifyModFiles(gameDir, m.Record.Id) == false)
             .Select(m => m.Record.Id)
             .ToHashSet();
 
