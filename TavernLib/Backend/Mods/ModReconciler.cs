@@ -35,6 +35,10 @@ public static class ModReconciler
         private readonly HashSet<string> _sceneSkipped = new();
         private Dictionary<string, InstalledModInfo> _installed;
         private List<ModSummary> _index;
+        // Verdicts for this pass, so a dependency or library shared by several
+        // listed mods is hashed once; anything reinstalled is forgotten.
+        private readonly Dictionary<string, bool?> _modVerified = new();
+        private readonly Dictionary<string, bool?> _libVerified = new();
 
         // Fetched on first use: a boot with nothing to install never needs it.
         private List<ModSummary> Index => _index ??= FetchIndex();
@@ -140,13 +144,39 @@ public static class ModReconciler
             foreach (var id in InstalledClosure(rootId).OrderBy(x => x, StringComparer.Ordinal))
             {
                 if (!_installed.TryGetValue(id, out var info)) continue;
-                if (ModInstaller.VerifyModFiles(gameDir, id) == false)
+                if (Memo(_modVerified, id, () => ModInstaller.VerifyModFiles(gameDir, info.Record)) == false)
                     return $"'{id}' {info.Record.Version} is damaged (its files no longer match what was installed)";
                 foreach (var lib in info.Record.Libraries ?? new List<string>())
-                    if (ModInstaller.VerifyLibrary(gameDir, lib) == false)
+                    if (Memo(_libVerified, lib, () => ModInstaller.VerifyLibrary(gameDir, lib)) == false)
                         return $"library '{lib}' (pinned by '{id}') is damaged";
             }
             return null;
+        }
+
+        private static bool? Memo(Dictionary<string, bool?> memo, string key, Func<bool?> verify)
+        {
+            if (!memo.TryGetValue(key, out var verdict)) memo[key] = verdict = verify();
+            return verdict;
+        }
+
+        private void InstallClosure(ModManifest target, List<ModManifest> deps, List<LibraryDependency> libs)
+        {
+            try
+            {
+                ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, _deadline);
+            }
+            finally
+            {
+                // Even after a partial failure, so later entries sharing these
+                // see what is on disk now.
+                foreach (var m in deps.Append(target))
+                {
+                    _modVerified.Remove(m.Id);
+                    var record = ModRecord.Read(gameDir, m.Id, out var enabled);
+                    if (record != null) _installed[m.Id] = new InstalledModInfo { Record = record, Enabled = enabled };
+                }
+                foreach (var lib in libs) _libVerified.Remove(lib.Filename);
+            }
         }
 
         /// <summary>Which trusted repo to ask first for a listed mod. Once the
@@ -245,7 +275,7 @@ public static class ModReconciler
 
                 deps ??= ResolveDeps();
                 var libs = ModInstaller.CollectLibraryDependencies(new[] { target }.Concat(deps));
-                ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, _deadline);
+                InstallClosure(target, deps, libs);
                 TavernLogger.Msg($"mod reconcile: installed '{entry.Id}' {target.Version}.");
 
                 keep.Add(target.Id);
