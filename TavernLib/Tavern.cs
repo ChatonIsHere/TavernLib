@@ -111,7 +111,7 @@ public class Tavern : MelonPlugin
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) ServerBackup.Start();
             }
             else MelonModFolders.SyncForBoot(serverProcess: false);
-
+            
             // Client & Server Services
             TavernServices.AddService(new EntranceMessageHandler());
         }
@@ -121,4 +121,4 @@ public class Tavern : MelonPlugin
             throw;
         }
     }
-}
+}
