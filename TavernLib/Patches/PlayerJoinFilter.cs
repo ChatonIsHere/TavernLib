@@ -84,50 +84,39 @@ public static class PlayerJoinFilter
     }
 
     /// <summary>Denies a join whose TavernMods claim (on the JWT FilterInvalidTokens
-    /// reads) fails ModParity.ValidateClient.</summary>
+    /// reads), or lack of one, fails ModParity.CheckJoin.</summary>
     private static async Task<bool> FilterModParity(Connection connection, Stream stream)
     {
-        List<ModHandshake.Entry> serverMods;
-        Dictionary<string, string> clientMods;
+        List<ModParity.RequiredMod> mismatches;
+        string modsClaim;
         try
         {
             // Untracked mods have no id or version to hold a client to.
-            (_, _, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-            // Nothing enforced: don't decode the request at all.
-            if (!serverMods.Any(ModParity.IsEnforced)) return true;
+            var (_, _, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+            // Nothing any client could be refused over: don't decode the request at all.
+            if (!serverMods.Any(ModParity.BlocksClaimless)) return true;
 
             using var readingStream = stream.Clone() as Stream;
             var requestJoinMessage = new RequestJoinMessage();
             requestJoinMessage.Serialize(connection, readingStream);
 
             var token = JWTUtility.CreateFromString(requestJoinMessage.UserCredentials, true);
-            var modsClaim = token.Claims.FirstOrDefault(claim => claim.Type == "TavernMods")?.Value;
-
-            try
-            {
-                clientMods = string.IsNullOrEmpty(modsClaim)
-                    ? new Dictionary<string, string>()
-                    : JsonConvert.DeserializeObject<Dictionary<string, string>>(modsClaim) ?? new Dictionary<string, string>();
-            }
-            catch (JsonException)
-            {
-                // A malformed claim counts as no mods: fail closed.
-                clientMods = new Dictionary<string, string>();
-            }
+            modsClaim = token.Claims.FirstOrDefault(claim => claim.Type == "TavernMods")?.Value;
+            mismatches = ModParity.CheckJoin(serverMods, modsClaim);
         }
         catch (Exception e)
         {
             // A fault on this end lets the join through, loudly: parity is defense in
-            // depth and the player can't fix it. A mismatching claim still denies, below.
+            // depth and the player can't fix it.
             TavernLogger.Error($"Error in FilterModParity for {connection.IpAddress}; skipping parity check for this join. {e}");
             return true;
         }
 
-        var mismatches = ModParity.ValidateClient(serverMods, clientMods);
         if (mismatches.Count == 0) return true;
 
         var reason = $"{ModParity.MismatchReasonPrefix}{JsonConvert.SerializeObject(mismatches)}";
-        TavernLogger.Warn($"User at {connection.IpAddress} rejected for mod mismatch: {reason}");
+        TavernLogger.Warn($"User at {connection.IpAddress} rejected for mod mismatch"
+            + (ModParity.ReadClaim(modsClaim) == null ? " (no readable TavernMods claim)" : "") + $": {reason}");
         await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, reason);
         return false;
     }
