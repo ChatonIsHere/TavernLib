@@ -384,11 +384,14 @@ public static class ModInstaller
                 if (!string.Equals(existing.Lib.Sha256, lib.Sha256, StringComparison.OrdinalIgnoreCase) ||
                     ModManagerConstants.NormalizeUrl(existing.Lib.DownloadUrl) != ModManagerConstants.NormalizeUrl(lib.DownloadUrl))
                     throw new ModManagerException(
-                        $"Library conflict on '{lib.Filename}': {existing.Owner} pins {existing.Lib.DownloadUrl} (sha {existing.Lib.Sha256.Substring(0, 12)}...) but {mod.Name} pins {lib.DownloadUrl} (sha {lib.Sha256.Substring(0, 12)}...). They can't both be installed.");
+                        $"Library conflict on '{lib.Filename}': {existing.Owner} pins {existing.Lib.DownloadUrl} (sha {ShortSha(existing.Lib.Sha256)}...) but {mod.Name} pins {lib.DownloadUrl} (sha {ShortSha(lib.Sha256)}...). They can't both be installed.");
             }
         }
         return byFilename.Values.Select(v => v.Lib).ToList();
     }
+
+    // install.py slices sha[:12], which never throws on a short value.
+    private static string ShortSha(string sha) => sha.Length > 12 ? sha.Substring(0, 12) : sha;
 
     /// <summary>Same shape as InstallMod: downloads, verifies, writes
     /// UserLibs/&lt;safe filename&gt; plus its .meta.json sidecar.</summary>
