@@ -352,7 +352,7 @@ public static class ModInstaller
             {
                 if (DisableUntrackedDll(gameDir, name))
                     TavernLogger.Warn($"mod install: Mods/{name} was a loose copy of a DLL that {modId} just installed; "
-                        + "disabled it so MelonLoader doesn't load it twice. `modmanager enable` brings it back.");
+                        + "disabled it so MelonLoader doesn't load it twice. Rename it back to {name} to restore it.");
             }
             catch (ModManagerException e)
             {
@@ -457,58 +457,6 @@ public static class ModInstaller
         InstallMod(gameDir, root, deadlineUtc);
     }
 
-    /// <summary>Delete a UserLibs/ library and its sidecar. Returns whether
-    /// anything was actually removed.</summary>
-    private static bool RemoveLibrary(string gameDir, string filename)
-    {
-        var removed = false;
-        foreach (var path in new[] { Path.Combine(ModPaths.UserLibsDir(gameDir), filename), ModPaths.LibrarySidecarPath(gameDir, filename) })
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-                removed = true;
-            }
-        }
-        return removed;
-    }
-
-    /// <summary>
-    /// Removes an installed community mod: its whole Mods/&lt;id&gt;/ folder, then
-    /// each library it pinned, UNLESS another still-installed mod's record lists
-    /// it (shared libraries stay, orphaned ones go). Returns whether anything was
-    /// deleted.
-    /// </summary>
-    public static bool UninstallMod(string gameDir, string modId, IEnumerable<ModRecord> allInstalled)
-    {
-        var meta = ModRecord.Read(gameDir, modId);
-        var removed = false;
-        var libs = (meta?.Libraries ?? new List<string>()).Select(ModPaths.SafeBasename).ToList();
-
-        var modDir = ModPaths.ModDirPath(gameDir, modId);
-        if (Directory.Exists(modDir))
-        {
-            Directory.Delete(modDir, recursive: true);
-            removed = true;
-        }
-
-        if (libs.Count > 0)
-        {
-            var stillNeeded = new HashSet<string>();
-            foreach (var other in allInstalled)
-                if (other.Id != modId)
-                    foreach (var lib in other.Libraries ?? new List<string>())
-                        stillNeeded.Add(ModPaths.SafeBasename(lib));
-
-            foreach (var lib in libs)
-            {
-                if (stillNeeded.Contains(lib)) continue;
-                if (RemoveLibrary(gameDir, lib)) removed = true;
-            }
-        }
-        return removed;
-    }
-
     /// <summary>
     /// Disable an installed folder-layout mod WITHOUT uninstalling it: rename its
     /// manifest.json to manifest.disabled.json so MelonLoader stops scanning the
@@ -547,14 +495,6 @@ public static class ModInstaller
     {
         var enabled = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
         return MoveRefusingClobber(enabled, enabled + ModManagerConstants.DisabledDllSuffix);
-    }
-
-    /// <summary>Reverses <see cref="DisableUntrackedDll"/>. Returns whether it was
-    /// disabled and is now enabled.</summary>
-    public static bool EnableUntrackedDll(string gameDir, string filename)
-    {
-        var enabled = Path.Combine(ModPaths.ModsBase(gameDir), ModPaths.SafeBasename(filename));
-        return MoveRefusingClobber(enabled + ModManagerConstants.DisabledDllSuffix, enabled);
     }
 
     private static bool MoveRefusingClobber(string src, string dest)
