@@ -9,20 +9,10 @@ using TavernLib.Backend.Auth;
 namespace TavernLib.Patches;
 
 /// <summary>
-/// Client-side half of post-reject recovery. Every join - the normal
-/// matchmade path and TavernLauncher's /dev_server_ip direct-connect path
-/// alike - goes through ConnectToServerUtility.ConnectToServer ->
-/// JoinServerPipeline.AttemptToConnectToServer (confirmed by decompiling the
-/// installed game: DevGameServerInfo.GetDevServer feeds the same
-/// GameModeManager.JoinServer entry point as a normal join). When the server
-/// rejects with a mod-mismatch reason, JoinServerPipeline calls its own
-/// OnServerRejectedRequest before giving up - this patches that method to
-/// write last_rejection.json so the waiting launcher (which spawned this
-/// game process and is blocked on it exiting) can recover the missing mods
-/// and relaunch. A rejection for any other reason (wrong password, banned,
-/// server full, a stale/incompatible client, etc.) is left alone entirely -
-/// only the exact "Mod mismatch: [...]" shape ModParity/PlayerJoinFilter
-/// itself produces is ever written here.
+/// Client side of rejection recovery: a join refused with ModParity's mismatch
+/// reason writes last_rejection.json, so the launcher waiting on this process
+/// can install what's missing and relaunch. Every join path, direct connects
+/// included, ends in JoinServerPipeline; other rejections are left alone.
 /// </summary>
 [HarmonyPatch]
 public static class JoinRejectionRecorder
@@ -49,12 +39,9 @@ public static class JoinRejectionRecorder
         }
     }
 
-    /// <summary>server/server_name are a cross-check for the launcher, not
-    /// the mechanism itself (that's written_at plus the launcher deleting any
-    /// stale copy before it launches). __instance.connectionInfo is null
-    /// until AttemptToConnectToServer sets it, which always happens before a
-    /// rejection can occur, so this is safe without an extra guard beyond the
-    /// outer try/catch.</summary>
+    /// <summary>server/server_name only cross-check for the launcher, which also
+    /// deletes any stale file before launching. connectionInfo is always set
+    /// before a rejection can arrive.</summary>
     private static void WriteRejectionFile(Connection connection, JoinServerPipeline pipeline, List<ModParity.RequiredMod> missing)
     {
         var payload = new RejectionPayload

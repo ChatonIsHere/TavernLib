@@ -12,11 +12,9 @@ internal static class AuthPayloads
     }
 
 
-    /// <summary>modsHash/modsCount are null when the server couldn't read its
-    /// own Mods/ for this answer. A launcher treats a pong without them exactly
-    /// as one from a TavernLib that predates mod sync - no sync, no join
-    /// planning - which is the honest degraded answer; an empty hash would
-    /// instead claim "no mods".</summary>
+    /// <summary>modsHash/modsCount are null when Mods/ couldn't be read, which a
+    /// launcher treats as a server without mod sync; an empty hash would claim
+    /// "no mods".</summary>
     public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort,
         string modsHash, int? modsCount)
     {
@@ -30,22 +28,13 @@ internal static class AuthPayloads
     }
 
 
-    /// <summary>Sent length-prefixed, not as a plain single-recv reply - see
-    /// AuthManager.WriteFramedResponse. Everything else on this port is small
-    /// enough for the existing single recv/send; this is the one payload that
-    /// can genuinely outgrow it.</summary>
     public readonly struct ModsListResponse(List<ModHandshake.Entry> mods, List<ModHandshake.UntrackedEntry> untracked)
     {
         [JsonProperty(PropertyName = "status")] private string Status => "ok";
         [JsonProperty(PropertyName = "mods")] private List<ModHandshake.Entry> Mods => mods;
 
-        /// <summary>Mods this server runs that its own manager didn't install -
-        /// advisory only. Kept a separate field rather than merged into `mods`
-        /// because a client feeds that straight into join planning, which
-        /// resolves every entry it's given; these have no id or version to
-        /// resolve. A client too old to know the field ignores it and joins
-        /// exactly as before, which is right for something that never blocks a
-        /// join anyway.</summary>
+        /// <summary>Advisory, and kept out of `mods`, which clients feed straight into
+        /// join planning; a client that doesn't know the field ignores it.</summary>
         [JsonProperty(PropertyName = "untracked")] private List<ModHandshake.UntrackedEntry> Untracked => untracked;
     }
 

@@ -4,30 +4,10 @@ using Newtonsoft.Json;
 namespace TavernLib.Backend.Server.Configs;
 
 /// <summary>
-/// A headless server's desired mod state - the mod ids a launcher GUI's
-/// active-set otherwise manages, since a headless operator has no launcher
-/// config. Each `mods` entry is an id, latest by default, or `id@version` to
-/// pin an exact one.
-///
-/// This is also the canonical modlist format: a file exported from a launcher
-/// (client or launcher-run server) is this exact shape, so it can become a
-/// headless server's config directly, with no conversion step.
-///
-/// Such a file may also carry an `untracked` block, naming what the exporting
-/// machine ran that its manager didn't install. There is deliberately no
-/// property for it here: those entries are filenames, not mod ids, and
-/// reconcile has no way to obtain such a mod - so the right behaviour is to
-/// ignore the key, which Newtonsoft does for anything undeclared. That is also
-/// why the exporter keeps them out of `mods`: an entry in there would be parsed
-/// as an id by ModsListEntry and resolved against the trusted repos every boot.
-///
-/// `repos` is informational only - each entry is a repo's "Author/Repo"
-/// shorthand (see ModManagerConstants.RepoShorthand), naming where this
-/// modlist's mods are expected to come from, for a human reading the file.
-/// It is NEVER used to resolve or authorize a pull: reconcile only ever pulls
-/// from TrustedRepos, the separately-maintained, add_repo-gated allow-list.
-/// A repo named here that isn't already registered there simply can't be
-/// resolved from - the same as any other mod whose source hasn't been added.
+/// A headless server's modlist: the same file a launcher exports. Each `mods`
+/// entry is an id (latest) or id@version. Its `repos` and `untracked` keys are
+/// informational and deliberately not read: reconcile pulls only from
+/// TrustedRepos, and untracked entries are filenames, not ids.
 /// </summary>
 public class ModsList
 {
