@@ -7,20 +7,13 @@ using TavernLib;
 namespace TavernLib.Backend.Mods;
 
 /// <summary>
-/// Fetches repository.json indexes and per-version manifests over HTTP(S),
-/// merges multi-repo indexes, and resolves a mod id to its manifest - the
-/// native-C# counterpart of modmanager.py's index/manifest fetching, following
-/// the same by-id / latest*.json resolution contract.
+/// Index and manifest fetches from the trusted repos: twin of repos.py's index
+/// fetch and resolve.py's manifest fetches.
 /// </summary>
 public class ModRepoClient(NativeHttp http)
 {
-    /// <summary>
-    /// The one per-repo trust check before a URL is ever registered as a
-    /// pullable source (see ModsCommandModule's `addrepo`): GETs
-    /// {url}/repository.json and confirms it parses as the expected schema.
-    /// Throws with a specific reason on anything else - a URL that doesn't
-    /// serve a valid index is rejected here, not discovered later mid-resolve.
-    /// </summary>
+    /// <summary>The live check `addrepo` runs before trusting a URL: its
+    /// repository.json must parse as an index.</summary>
     public static void ValidateRepoIndex(string url)
     {
         using var http = new NativeHttp();
@@ -35,8 +28,6 @@ public class ModRepoClient(NativeHttp http)
     {
         try
         {
-            // NativeHttp, not HttpClient: this runs before Unity's TLS provider
-            // exists, when Mono can't complete an HTTPS handshake (see NativeHttp).
             var body = http.GetString(url, TimeSpan.FromSeconds(ModManagerConstants.JsonFetchTimeoutSeconds),
                 ModManagerConstants.MaxJsonBytes);
             return JObject.Parse(body);
@@ -47,11 +38,8 @@ public class ModRepoClient(NativeHttp http)
         }
     }
 
-    /// <summary>
-    /// Loads one repo's repository.json into a list of ModSummary (one per
-    /// (id, major)), tagging each with SourceRepo. A repo that fails is
-    /// returned as [] with a warning, never a hard failure.
-    /// </summary>
+    /// <summary>One repo's index as ModSummary rows; a repo that fails is skipped
+    /// with a warning.</summary>
     private List<ModSummary> FetchRepoIndex(string baseUrl)
     {
         baseUrl = ModManagerConstants.NormalizeUrl(baseUrl);
@@ -94,11 +82,8 @@ public class ModRepoClient(NativeHttp http)
         return outList;
     }
 
-    /// <summary>
-    /// GETs repository.json from every configured repo and merges them into one
-    /// resolved entry per (id, major). On a collision, DEFAULT_REPO wins if
-    /// present, otherwise the highest version among the remaining repos.
-    /// </summary>
+    /// <summary>Twin of repos.py's fetch_indexes: one entry per (id, major); on a
+    /// collision the default repo wins, else the highest version.</summary>
     public List<ModSummary> FetchIndexes(IEnumerable<string> repoBases)
     {
         var merged = new Dictionary<(string Id, int Major), (ModSummary Summary, bool FromDefault)>();
@@ -137,21 +122,16 @@ public class ModRepoClient(NativeHttp http)
         return order;
     }
 
-    /// <summary>
-    /// Fetches one manifest file (leaf, e.g. "1.0.4.json" or "latest.1.json") from
-    /// manifests/&lt;author&gt;/&lt;repo&gt;/ across the configured repos in preference
-    /// order, returning the first that parses.
-    /// </summary>
+    /// <summary>Twin of resolve.py's _fetch_manifest_leaf: the first trusted repo,
+    /// in preference order, serving a usable manifest for this mod at leaf.</summary>
     private ModManifest FetchManifestLeaf(IEnumerable<string> repoBases, string modId, string leaf, string preferRepo, string what,
         string expectedVersion = null)
     {
         var idx = modId.IndexOf('.');
         if (idx < 0)
             throw new ModManagerException($"Mod id '{modId}' isn't '<github-user>.<github-repo>'.");
-        // Both halves become path segments in the URL below, and a mod id
-        // arrives from an unreviewed index - so they get the same basename
-        // check the disk paths use, before a '..' or '/' can walk the request
-        // somewhere else on the host.
+        // Both halves become URL path segments and the id comes from an unreviewed
+        // index, so they get the disk paths' basename check.
         var author = ModPaths.SafeBasename(modId.Substring(0, idx));
         var repo = ModPaths.SafeBasename(modId.Substring(idx + 1));
 
@@ -190,10 +170,7 @@ public class ModRepoClient(NativeHttp http)
     public ModManifest FetchManifest(IEnumerable<string> repoBases, string modId, string version, string preferRepo = null) =>
         FetchManifestLeaf(repoBases, modId, $"{version}.json", preferRepo, $"mod '{modId}' version {version}", version);
 
-    /// <summary>
-    /// Fetches a single mod's manifest by id via the latest*.json pointer files.
-    /// If major is given, fetches latest.&lt;major&gt;.json; otherwise latest.json.
-    /// </summary>
+    /// <summary>The latest manifest via latest.json, or latest.&lt;major&gt;.json.</summary>
     public ModManifest ResolveModById(IEnumerable<string> repoBases, string modId, string preferRepo = null, int? major = null)
     {
         var leaf = major.HasValue ? $"latest.{major}.json" : "latest.json";

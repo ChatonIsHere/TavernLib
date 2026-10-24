@@ -7,12 +7,8 @@ using TavernLib;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>
-/// A pinned, exact-version support assembly a mod links against, installed to
-/// UserLibs/. No id, no version-range resolution, no separate manifest - just
-/// "here's the exact file", distinct from <see cref="ModManifest.Dependencies"/>,
-/// which is for depending on other mods.
-/// </summary>
+/// <summary>A pinned, exact-version file a mod needs in UserLibs/: not a mod, so
+/// no id and no version range.</summary>
 public class LibraryDependency
 {
     // Also the record's library_dependencies entry shape, in this order.
@@ -37,20 +33,10 @@ public class LibraryDependency
 }
 
 /// <summary>
-/// Reads a <c>parity_required</c> value out of raw JSON: whether a client
-/// joining a server that runs this mod must match its exact version.
-/// <para>
-/// True for mods whose two halves are one system - a voice codec,
-/// a network protocol, anything where both sides exchange data they have to
-/// agree on. False for mods whose halves work independently, where the server
-/// won't block a join and the client is offered the mod rather than obliged to
-/// have it.
-/// </para>
-/// Mandatory, with no default: every shape that carries this field is written
-/// by tooling that knows about it, so a missing one means the data is
-/// malformed, and guessing on its behalf is exactly what would let a required
-/// mod be silently treated as optional. Callers decide what a failure means - a
-/// manifest becomes unresolvable, an index entry is skipped.
+/// Reads parity_required: whether a client joining a server that runs the mod
+/// must have its exact version. Twin of manifest.py's parity_required:
+/// mandatory and strictly a JSON boolean, since guessing is what would let a
+/// required mod pass as optional. Callers decide what a failure costs.
 /// </summary>
 public static class ModParityField
 {
@@ -68,12 +54,9 @@ public static class ModParityField
 }
 
 /// <summary>
-/// The optional "scenes" field: which of the normal/quest/tutorial scenes a mod
-/// works in. Null - absent, or JSON null - means every scene, which is what every
-/// mod published before the field existed gets. Counterpart of manifest.py's
-/// mod_scenes, with the same rules: a present value must be a non-empty list of
-/// non-empty strings, and names this build doesn't know are kept rather than
-/// refused, so a scene added later doesn't make the whole manifest unreadable.
+/// Twin of manifest.py's mod_scenes: null (absent or JSON null) means every
+/// scene; a present value must be a non-empty list of non-empty strings, and
+/// unknown names are kept so a scene added later doesn't break older readers.
 /// </summary>
 public static class ModScenesField
 {
@@ -122,11 +105,8 @@ public class ModManifest
     /// <summary>See <see cref="ModScenesField"/>; null means every scene.</summary>
     public List<string> Scenes { get; set; }
 
-    /// <summary>
-    /// The basename this mod's single .dll lands under in Mods/&lt;id&gt;/, taken from
-    /// DownloadUrl. Falls back to "&lt;id&gt;.dll" if the URL's basename isn't a safe,
-    /// ".dll"-suffixed name - only meaningful for Package == "dll".
-    /// </summary>
+    /// <summary>Twin of manifest.py's install_name: the download URL's basename if
+    /// it's safe and ends in .dll, else &lt;id&gt;.dll.</summary>
     public string InstallName()
     {
         string basename;
@@ -153,12 +133,8 @@ public class ModManifest
         return safe.ToLowerInvariant().EndsWith(".dll") ? safe : $"{Id}.dll";
     }
 
-    /// <summary>
-    /// Builds a ModManifest from a parsed manifest object. Returns null (caller
-    /// warns and drops it) if manifest_version's major isn't supported. Throws
-    /// only for a manifest that claims a supported version but is structurally
-    /// broken (a required field missing).
-    /// </summary>
+    /// <summary>Twin of manifest.py's _manifest_from_dict: null for an unsupported
+    /// schema or package (warned and dropped), throws for a broken manifest.</summary>
     public static ModManifest FromJson(JObject d, string sourceRepo)
     {
         var idForMsg = (string)d["id"] ?? "?";
@@ -238,11 +214,8 @@ public class ModManifest
     }
 }
 
-/// <summary>
-/// One (id, major) row from a repository.json index - enough to browse and pick
-/// a version; install-critical data (download_url/sha256/dependencies) lives
-/// only in the per-version manifest.
-/// </summary>
+/// <summary>One (id, major) row of repository.json: enough to pick a version;
+/// nothing install-critical lives here.</summary>
 public class ModSummary
 {
     public string Id { get; private set; }

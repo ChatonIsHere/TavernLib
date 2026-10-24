@@ -47,9 +47,7 @@ public static class PlayerJoinFilter
         catch (Exception e)
         {
             TavernLogger.Error($"Error when filtering join request! {e}");
-            // No rethrow: this is an async void handler, so a rethrown
-            // exception has no observer except the runtime, which can take the
-            // whole process down over one failed join.
+            // No rethrow: from an async void handler it can take the process down.
             await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, "Error when checking authenticity");
         }
     }
@@ -85,32 +83,17 @@ public static class PlayerJoinFilter
         }
     }
 
-    /// <summary>
-    /// Defense-in-depth: exact-version mod parity. Reads the joining client's
-    /// own installed-mods claim ("TavernMods" on the same JWT
-    /// FilterInvalidTokens already reads) and denies the join if it disagrees
-    /// with what this server requires (ModParity.ValidateClient). By the time
-    /// this runs, a well-behaved launcher's pre-join render should already
-    /// match - this exists for what bypasses or predates that (a direct
-    /// connect, a stale pre-join check, a modified/older launcher). A server
-    /// with no ClientSide mods at all has nothing to check, so every join
-    /// passes through untouched.
-    /// </summary>
+    /// <summary>Denies a join whose TavernMods claim (on the JWT FilterInvalidTokens
+    /// reads) fails ModParity.ValidateClient.</summary>
     private static async Task<bool> FilterModParity(Connection connection, Stream stream)
     {
         List<ModHandshake.Entry> serverMods;
         Dictionary<string, string> clientMods;
         try
         {
-            // Managed mods only, and the untracked list is discarded here on
-            // purpose: this decides whether to REFUSE a join, and an untracked mod
-            // has no id or version a client could ever be asked to match. A server
-            // reports them so a player knows they exist, never to hold them against
-            // one.
+            // Untracked mods have no id or version to hold a client to.
             (_, _, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-            // Nothing to enforce unless at least one mod is both client-side and
-            // parity-required. A server running only recommended client mods can't
-            // reject anyone over them, so it shouldn't read the claim at all.
+            // Nothing enforced: don't decode the request at all.
             if (!serverMods.Any(ModParity.IsEnforced)) return true;
 
             using var readingStream = stream.Clone() as Stream;
@@ -128,19 +111,14 @@ public static class PlayerJoinFilter
             }
             catch (JsonException)
             {
-                // Malformed claim - treat as having nothing rather than trusting
-                // it, so a broken/tampered claim fails closed, not open.
+                // A malformed claim counts as no mods: fail closed.
                 clientMods = new Dictionary<string, string>();
             }
         }
         catch (Exception e)
         {
-            // Parity is defense-in-depth behind the launcher's own pre-join
-            // render, not the thing that keeps a session safe - so a fault on
-            // THIS end (Mods/ briefly unreadable, an unreadable token) lets the
-            // join through loudly rather than turning a player away over
-            // something they can't see or fix. A claim that merely disagrees
-            // still denies; that path is below.
+            // A fault on this end lets the join through, loudly: parity is defense in
+            // depth and the player can't fix it. A mismatching claim still denies, below.
             TavernLogger.Error($"Error in FilterModParity for {connection.IpAddress}; skipping parity check for this join. {e}");
             return true;
         }
