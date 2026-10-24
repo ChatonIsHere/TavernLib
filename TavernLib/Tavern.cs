@@ -146,6 +146,7 @@ public class Tavern : MelonPlugin
     private void ReconcileMods(string modsListPathArg)
     {
         TavernLogger.Msg("mod reconcile: running before Mods/ is scanned (OnEarlyInitializeMelon).");
+        var started = false;
         try
         {
             var path = Path.IsPathRooted(modsListPathArg)
@@ -171,13 +172,31 @@ public class Tavern : MelonPlugin
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
 
+            started = true;
             ModReconciler.Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead,
                 SceneIndexPatches.ForcedSceneName());
-            MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
         }
         catch (Exception e)
         {
             TavernLogger.Error($"mod reconcile: couldn't read '{modsListPathArg}' or reconcile failed ({e}); booting with Mods/ unchanged.");
+        }
+        finally
+        {
+            // Even after a partial failure: the handshake reads the disk, so
+            // MelonLoader's folder list has to match whatever reconcile left there.
+            if (started) SyncModFolders();
+        }
+    }
+
+    private static void SyncModFolders()
+    {
+        try
+        {
+            MelonModFolders.Sync(MelonEnvironment.ModsDirectory);
+        }
+        catch (Exception e)
+        {
+            TavernLogger.Error($"mod reconcile: couldn't update MelonLoader's mod folder list ({e}); changes take effect on the next restart.");
         }
     }
 }
