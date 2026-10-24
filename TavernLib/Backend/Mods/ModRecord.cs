@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace TavernLib.Backend.Mods;
 
@@ -13,25 +15,6 @@ namespace TavernLib.Backend.Mods;
 /// stable; it's read by both this installer and the Python launcher's
 /// modmanager.py (same on-disk convention, two implementations).
 /// </summary>
-/// <summary>Reads a JSON boolean and nothing else - no coercion from a string
-/// or a number, which Json.NET does by default. Used where the launcher's
-/// Python reader is equally strict and the two must agree on whether a record
-/// is readable at all.</summary>
-public class StrictBoolConverter : JsonConverter
-{
-    public override bool CanConvert(Type objectType) => objectType == typeof(bool);
-
-    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
-    {
-        if (reader.TokenType != JsonToken.Boolean)
-            throw new JsonSerializationException($"Expected a boolean, got {reader.TokenType}.");
-        return reader.Value;
-    }
-
-    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) =>
-        writer.WriteValue((bool)value);
-}
-
 public class ModRecord
 {
     [JsonProperty("manifest_version")] public int ManifestVersion { get; set; }
@@ -43,24 +26,9 @@ public class ModRecord
     [JsonProperty("client_side")] public bool ClientSide { get; set; }
     [JsonProperty("server_side")] public bool ServerSide { get; set; }
 
-    /// <summary>Whether a joining client must match this mod's exact version
-    /// (see <see cref="ModParityField"/>). Recorded on disk so the handshake can
-    /// report it without re-fetching the manifest.
-    ///
-    /// Required, with no default: every record we write carries it, so one
-    /// without it is corrupt and can't be read - ReadFrom returns null and the
-    /// mod counts as not installed. Assuming a value would be the one mistake
-    /// that matters here, since it decides whether a joining client is obliged
-    /// to match. Reading as not-installed is recoverable: the next reconcile
-    /// reinstalls it with a full record.
-    ///
-    /// Strictly a JSON boolean, via the converter below: Required.Always only
-    /// checks that the field is PRESENT, and Json.NET would otherwise read
-    /// "false" or 0 as a bool where modmanager.py's isinstance check rejects
-    /// both. The two implementations have to call the same record unreadable,
-    /// or they disagree about which mods a Mods/ folder even contains.</summary>
-    [JsonProperty("parity_required", Required = Required.Always)]
-    [JsonConverter(typeof(StrictBoolConverter))]
+    /// <summary>Required on disk: <see cref="Read"/> refuses a record without a
+    /// JSON boolean here rather than guess whether clients must match it.</summary>
+    [JsonProperty("parity_required")]
     public bool ParityRequired { get; set; }
     [JsonProperty("dependencies")] public Dictionary<string, string> Dependencies { get; set; } = new();
     [JsonProperty("library_dependencies")] public List<LibraryRecordEntry> LibraryDependencies { get; set; } = new();
@@ -142,41 +110,72 @@ public class ModRecord
 
     private static readonly HashSet<string> WarnedUnreadable = new();
 
-    private static ModRecord ReadFrom(string path)
+    // Ownership is decided by the predicate in Read alone, so a malformed field
+    // it doesn't look at costs that field, not the whole record.
+    private static readonly JsonSerializer Lenient = JsonSerializer.Create(new JsonSerializerSettings
+    {
+        Error = (_, e) => e.ErrorContext.Handled = true,
+    });
+
+    public static ModRecord Read(string gameDir, string modId) => Read(gameDir, modId, out _);
+
+    /// <summary>Twin of install.py:_read_mod_record + _owned_mod_record, the "is
+    /// this folder ours" predicate: the first of manifest.json and
+    /// manifest.disabled.json holding an object with a truthy id is the record,
+    /// and it's ours only if its parity_required is a JSON boolean. Null when it
+    /// isn't. <paramref name="enabled"/> is whether the record came from
+    /// manifest.json, as list_installed_mods reports it.</summary>
+    public static ModRecord Read(string gameDir, string modId, out bool enabled)
+    {
+        enabled = true;
+        foreach (var path in new[] { ModPaths.ModRecordPath(gameDir, modId), ModPaths.DisabledRecordPath(gameDir, modId) })
+        {
+            if (ParseObject(path) is { } obj && Truthy(obj["id"]))
+            {
+                if (obj[ModParityField.Name]?.Type != JTokenType.Boolean)
+                {
+                    lock (WarnedUnreadable)
+                    {
+                        if (WarnedUnreadable.Add(path))
+                            TavernLogger.Warn($"mod record '{path}' has no usable {ModParityField.Name}; treating the mod as not installed until reconcile rewrites it.");
+                    }
+                    return null;
+                }
+                var record = obj.ToObject<ModRecord>(Lenient);
+                if (string.IsNullOrEmpty(record.Id)) record.Id = obj["id"].ToString(Formatting.None);
+                return record;
+            }
+            enabled = false;
+        }
+        return null;
+    }
+
+    /// <summary>The file's top-level JSON object, or null if it's missing, not
+    /// JSON, or not an object. Strings stay strings (no date parsing), so a
+    /// record patched through this writes back what it read.</summary>
+    internal static JObject ParseObject(string path)
     {
         if (!File.Exists(path)) return null;
         try
         {
-            return JsonConvert.DeserializeObject<ModRecord>(File.ReadAllText(path));
+            using var reader = new JsonTextReader(new StringReader(File.ReadAllText(path))) { DateParseHandling = DateParseHandling.None };
+            var token = JToken.ReadFrom(reader);
+            return reader.Read() ? null : token as JObject;
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            // Once per path, not per read - the listers run this on every
-            // snapshot. But never silently: an unreadable record drops its mod
-            // from the managed set (so parity stops being enforced for it) while
-            // MelonLoader goes on loading the folder, and an operator needs to
-            // be able to see why.
-            lock (WarnedUnreadable)
-            {
-                if (WarnedUnreadable.Add(path))
-                    TavernLogger.Warn($"mod record '{path}' can't be read ({e.Message}); treating the mod as not installed until reconcile rewrites it.");
-            }
             return null;
         }
     }
 
-    /// <summary>
-    /// The install record for a mod, from whichever state it's in: the enabled
-    /// folder record, then the disabled one. Only accepted if it carries an id.
-    /// Returns null if neither has it.
-    /// </summary>
-    public static ModRecord Read(string gameDir, string modId)
+    // Python truthiness, which is what install.py's rec.get("id") tests.
+    private static bool Truthy(JToken t) => t?.Type switch
     {
-        foreach (var path in new[] { ModPaths.ModRecordPath(gameDir, modId), ModPaths.DisabledRecordPath(gameDir, modId) })
-        {
-            var rec = ReadFrom(path);
-            if (rec != null && !string.IsNullOrEmpty(rec.Id)) return rec;
-        }
-        return null;
-    }
+        null or JTokenType.Null => false,
+        JTokenType.Boolean => (bool)t,
+        JTokenType.String => ((string)t).Length > 0,
+        JTokenType.Integer or JTokenType.Float =>
+            ((JValue)t).Value is not IConvertible n || n.ToDouble(CultureInfo.InvariantCulture) != 0,
+        _ => t is not JContainer c || c.Count > 0,
+    };
 }

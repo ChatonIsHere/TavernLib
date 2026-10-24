@@ -234,14 +234,15 @@ public static class ModInstaller
     /// never legally have, but the scanners have to survive whatever is
     /// actually sitting in Mods/ - one oddly-named folder must not take down
     /// every ping, join, and reconcile.</summary>
-    private static ModRecord ReadRecordSkippingUnsafe(string gameDir, string name)
+    private static ModRecord ReadRecordSkippingUnsafe(string gameDir, string name, out bool enabled)
     {
         try
         {
-            return ModRecord.Read(gameDir, name);
+            return ModRecord.Read(gameDir, name, out enabled);
         }
         catch (ModManagerException)
         {
+            enabled = false;
             return null;
         }
     }
@@ -625,9 +626,8 @@ public static class ModInstaller
         {
             var id = Path.GetFileName(dir);
             if (id.StartsWith(".") || id.StartsWith("~")) continue;
-            var rec = ReadRecordSkippingUnsafe(gameDir, id);
+            var rec = ReadRecordSkippingUnsafe(gameDir, id, out var enabled);
             if (rec == null) continue;
-            var enabled = File.Exists(ModPaths.ModRecordPath(gameDir, id));
             byId[rec.Id] = new InstalledModInfo { Record = rec, Enabled = enabled };
         }
         return byId.Values.ToList();
@@ -685,7 +685,7 @@ public static class ModInstaller
             // INSIDE the record, so a folder whose name and record id disagree
             // would miss an id-set lookup and get reported as untracked as well
             // as installed. Same input, same question, one answer.
-            if (ReadRecordSkippingUnsafe(gameDir, name) != null) continue;
+            if (ReadRecordSkippingUnsafe(gameDir, name, out _) != null) continue;
             if (File.Exists(Path.Combine(dir, ModManagerConstants.RecordName)))
                 found.Add(new UntrackedMod { Name = name, Kind = UntrackedMod.KindFolder, Enabled = true });
             else if (File.Exists(Path.Combine(dir, ModManagerConstants.DisabledRecordName)))
