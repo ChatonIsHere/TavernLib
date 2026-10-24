@@ -136,7 +136,8 @@ public static class ModHandshake
 
     private static (string Hash, int Count, List<Entry> Mods, List<UntrackedEntry> Untracked) BuildSnapshot(string gameDir)
     {
-        var mods = ModInstaller.ListInstalledModsWithState(gameDir)
+        var (installed, untrackedMods) = ModInstaller.ScanMods(gameDir);
+        var mods = installed
             .Where(m => m.Enabled)
             .OrderBy(m => m.Record.Id, StringComparer.Ordinal)
             .Select(m => new Entry
@@ -152,7 +153,7 @@ public static class ModHandshake
             })
             .ToList();
 
-        var untracked = ModInstaller.ListUntrackedMods(gameDir)
+        var untracked = untrackedMods
             .Where(u => u.Enabled)
             // Lowercase-then-ordinal, NOT OrdinalIgnoreCase: that compares
             // upper-cased, which orders '_' and '[' the other side of the

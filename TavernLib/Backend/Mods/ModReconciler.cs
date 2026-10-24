@@ -50,7 +50,7 @@ public static class ModReconciler
             index = new List<ModSummary>();
         }
 
-        var installed = ModInstaller.ListInstalledModsWithState(gameDir);
+        var installed = ModInstaller.ScanMods(gameDir).Installed;
         var installedById = installed.ToDictionary(m => m.Record.Id);
         var desiredEntries = (modsList.Mods ?? new List<string>()).Select(ModsListEntry.Parse).ToList();
 

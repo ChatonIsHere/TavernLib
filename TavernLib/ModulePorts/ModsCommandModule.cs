@@ -29,8 +29,7 @@ public static class ModsCommandModule
     private static string List()
     {
         var gameDir = MelonEnvironment.GameRootDirectory;
-        var installed = ModInstaller.ListInstalledModsWithState(gameDir);
-        var untracked = ModInstaller.ListUntrackedMods(gameDir);
+        var (installed, untracked) = ModInstaller.ScanMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
         // Re-hashed here rather than read off a cached answer: this is an
