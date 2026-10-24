@@ -14,10 +14,6 @@ namespace TavernLib.Backend.Mods;
 /// </summary>
 public class ModRepoClient
 {
-    // base URL -> (fetched_at, list<ModSummary>). Per-base so one slow/broken
-    // repo doesn't invalidate the others' caches.
-    private readonly Dictionary<string, (DateTime FetchedAt, List<ModSummary> Summaries)> _indexCache = new();
-
     /// <summary>
     /// The one per-repo trust check before a URL is ever registered as a
     /// pullable source (see ModsCommandModule's `addrepo`): GETs
@@ -51,23 +47,17 @@ public class ModRepoClient
 
     /// <summary>
     /// Loads one repo's repository.json into a list of ModSummary (one per
-    /// (id, major)), tagging each with SourceRepo. Cached with a TTL; a repo that
-    /// fails is returned as [] with a warning, never a hard failure.
+    /// (id, major)), tagging each with SourceRepo. A repo that fails is
+    /// returned as [] with a warning, never a hard failure.
     /// </summary>
-    private List<ModSummary> FetchRepoIndex(string baseUrl, bool force)
+    private List<ModSummary> FetchRepoIndex(string baseUrl)
     {
         baseUrl = ModManagerConstants.NormalizeUrl(baseUrl);
-        var now = DateTime.UtcNow;
-        if (!force && _indexCache.TryGetValue(baseUrl, out var hit) &&
-            (now - hit.FetchedAt).TotalSeconds < ModManagerConstants.IndexTtlSeconds)
-            return hit.Summaries;
 
-        // A repo that can't be used this time falls back to whatever it last
-        // served (past its TTL is still better than nothing), else nothing.
         List<ModSummary> SkipWith(string reason)
         {
             TavernLogger.Warn($"skipping repo {baseUrl}: {reason}");
-            return _indexCache.TryGetValue(baseUrl, out var stale) ? stale.Summaries : new List<ModSummary>();
+            return new List<ModSummary>();
         }
 
         JObject index;
@@ -99,7 +89,6 @@ public class ModRepoClient
             }
         }
 
-        _indexCache[baseUrl] = (now, outList);
         return outList;
     }
 
@@ -108,13 +97,13 @@ public class ModRepoClient
     /// resolved entry per (id, major). On a collision, DEFAULT_REPO wins if
     /// present, otherwise the highest version among the remaining repos.
     /// </summary>
-    public List<ModSummary> FetchIndexes(IEnumerable<string> repoBases, bool force = false)
+    public List<ModSummary> FetchIndexes(IEnumerable<string> repoBases)
     {
         var merged = new Dictionary<(string Id, int Major), (ModSummary Summary, bool FromDefault)>();
         foreach (var baseUrl in repoBases)
         {
             var fromDefault = ModManagerConstants.IsDefaultRepo(baseUrl);
-            foreach (var s in FetchRepoIndex(baseUrl, force))
+            foreach (var s in FetchRepoIndex(baseUrl))
             {
                 var key = (s.Id, s.Major);
                 if (!merged.TryGetValue(key, out var cur))
