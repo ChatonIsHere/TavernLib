@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Build TavernLib (Release) first: dotnet build ../../TavernLib/TavernLib.csproj -c Release -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Lib>$(MSBuildThisFileDirectory)..\..\TavernLib\bin\Release\</Lib>
+    <Deps>$(MSBuildThisFileDirectory)..\..\Dependencies\</Deps>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Mono.Cecil" Version="0.10.4" />
+    <Reference Include="TavernLib"><HintPath>$(Lib)TavernLib.dll</HintPath></Reference>
+    <Reference Include="MelonLoader"><HintPath>$(Lib)MelonLoader.dll</HintPath></Reference>
+    <Reference Include="MonoMod.RuntimeDetour"><HintPath>$(Deps)MonoMod.RuntimeDetour.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Utils"><HintPath>$(Deps)MonoMod.Utils.dll</HintPath></Reference>
+    <Reference Include="MonoMod.ILHelpers"><HintPath>$(Deps)MonoMod.ILHelpers.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
