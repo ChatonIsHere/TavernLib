@@ -193,8 +193,6 @@
     <Compile Include="Backend\Mods\ModDependencyResolver.cs" />
     <Compile Include="Backend\Mods\ModInstaller.cs" />
     <Compile Include="Backend\Mods\ModManagerConstants.cs" />
-    <Compile Include="Backend\Mods\ModManagerException.cs" />
-    <Compile Include="Backend\Mods\ModPaths.cs" />
     <Compile Include="Backend\Mods\ModHandshake.cs" />
     <Compile Include="Backend\Mods\ModReconciler.cs" />
     <Compile Include="Backend\Mods\ModRecord.cs" />
