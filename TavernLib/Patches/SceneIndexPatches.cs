@@ -13,15 +13,6 @@ public class SceneIndexPatches
         return null;
     }
 
-    /// <summary>This process's scene by manifest "scenes" names, from the same
-    /// arguments as <see cref="ForcedSceneIndex"/>.</summary>
-    internal static string ForcedSceneName()
-    {
-        if (CommandLineArguments.Contains(TavernArgs.TutorialScene)) return "tutorial";
-        if (CommandLineArguments.Contains(TavernArgs.QuestScene)) return "quest";
-        return "normal";
-    }
-
     [HarmonyPatch(typeof(JoinedServerGameMode), MethodType.Constructor, [typeof(GameServerInfo)]), HarmonyPostfix]
     public static void OverrideSceneIndex(GameServerInfo server)
     {
