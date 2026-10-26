@@ -10,7 +10,7 @@ using TavernLib.Backend.Mods;
 // Manifest v2 harness. Modes:
 //   reconcile <gameDir> <repoBase> <id,id,...> [scene]   ModReconciler for the server target (scene default "normal")
 //   snap <gameDir>                                       server snapshot as JSON {hash, count, mods, untracked}
-//   select <gameDir> <server|pc>                         MelonLoader's Mods scan, then TavernLib's selection; prints _modDirs
+//   select <gameDir> <target>                            MelonLoader's Mods scan, then TavernLib's selection; prints _modDirs
 //   parity <gameDir> <claimJson|none>                    join verdict against the folder's server snapshot
 //   verify <gameDir> <id> <target>                       VerifyTarget result
 //   list <gameDir>                                       what `modmanager list` would print
@@ -78,7 +78,7 @@ static class Program
                 try
                 {
                     var m = ModManifest.FromJson(JObject.Parse(File.ReadAllText(args[1])), "https://repo");
-                    Console.WriteLine(m == null ? "skipped" : "ok server=" + (m.ArtifactFor("server")?.DownloadUrl ?? "-") + " pc=" + (m.ArtifactFor("pc")?.DownloadUrl ?? "-") + " quest=" + (m.ArtifactFor("quest")?.DownloadUrl ?? "-"));
+                    Console.WriteLine(m == null ? "skipped" : "ok server=" + (m.ArtifactFor("server")?.DownloadUrl ?? "-") + " client_windows=" + (m.ArtifactFor("client_windows")?.DownloadUrl ?? "-") + " client_android=" + (m.ArtifactFor("client_android")?.DownloadUrl ?? "-"));
                 }
                 catch (ModManagerException e) { Console.WriteLine("refused: " + e.Message); }
                 return 0;
@@ -95,7 +95,7 @@ static class Program
                 // build <manifest.json>: the record ModRecord.Build writes for it, installed for every target it builds
                 var m = ModManifest.FromJson(ModRecord_ParseFile(args[1]), "https://repo");
                 var installed = new Dictionary<string, JToken>();
-                foreach (var t in new[] { "server", "pc", "quest" })
+                foreach (var t in new[] { "server", "client_windows", "client_android" })
                     if (m.ArtifactFor(t) is { } a)
                         installed[t] = ModRecord.InstalledEntry(a, new Dictionary<string, string> { ["b/Z.dll"] = "ab", ["A.dll"] = "cd", ["a.dll"] = "ef" });
                 var fmt = typeof(ModRecord).GetMethod("Format", BindingFlags.Static | BindingFlags.NonPublic);
