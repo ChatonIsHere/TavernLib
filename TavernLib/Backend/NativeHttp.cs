@@ -130,31 +130,23 @@ public sealed class NativeHttp : IDisposable
 
     [DllImport("winhttp.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr WinHttpOpen(string agent, uint accessType, string proxyName, string proxyBypass, uint flags);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpSetTimeouts(IntPtr handle, int resolveMs, int connectMs, int sendMs, int receiveMs);
-
     [DllImport("winhttp.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr WinHttpConnect(IntPtr session, string server, ushort port, uint reserved);
-
     [DllImport("winhttp.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr WinHttpOpenRequest(IntPtr connection, string verb, string objectName, string version,
         string referrer, IntPtr acceptTypes, uint flags);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpSendRequest(IntPtr request, IntPtr headers, uint headersLength, IntPtr optional,
         uint optionalLength, uint totalLength, IntPtr context);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpReceiveResponse(IntPtr request, IntPtr reserved);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpQueryHeaders(IntPtr request, uint infoLevel, IntPtr name, ref uint buffer,
         ref uint bufferLength, IntPtr index);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpReadData(IntPtr request, byte[] buffer, uint bytesToRead, out uint bytesRead);
-
     [DllImport("winhttp.dll", SetLastError = true)]
     private static extern bool WinHttpCloseHandle(IntPtr handle);
 }
