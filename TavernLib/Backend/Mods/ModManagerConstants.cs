@@ -5,7 +5,7 @@ namespace TavernLib.Backend.Mods;
 
 public static class ModManagerConstants
 {
-    public const string DefaultRepo = "https://raw.githubusercontent.com/ChatonIsHere/CommunityMods/main";
+    public const string DefaultRepo = "https://raw.githubusercontent.com/ModdingTavern/TavernMods/main";
 
     public const string TargetPc = "pc";
     public const string TargetServer = "server";
