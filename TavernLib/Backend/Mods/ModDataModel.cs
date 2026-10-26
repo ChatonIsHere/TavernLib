@@ -129,7 +129,7 @@ public class ModManifest
     {
         var idForMsg = (string)d["id"] ?? "?";
 
-        if (d["manifest_version"] == null || d["manifest_version"].Type != JTokenType.Integer)
+        if (d["manifest_version"]?.Type != JTokenType.Integer)
         {
             TavernLogger.Warn($"manifest for {idForMsg} has no integer manifest_version, skipped.");
             return null;
