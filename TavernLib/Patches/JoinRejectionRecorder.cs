@@ -8,11 +8,8 @@ using TavernLib.Backend.Auth;
 
 namespace TavernLib.Patches;
 
-/// <summary>
-/// A join refused with ModParity's mismatch reason writes last_rejection.json, so the launcher waiting on
-/// this process can install what's missing and relaunch. Every join path, direct connects included, ends in
-/// JoinServerPipeline.
-/// </summary>
+// Writes last_rejection.json, so the launcher waiting on this process can install what's missing and
+// relaunch. Every join path, direct connects included, ends in JoinServerPipeline.
 [HarmonyPatch]
 public static class JoinRejectionRecorder
 {
@@ -27,8 +24,6 @@ public static class JoinRejectionRecorder
             var missing = JsonConvert.DeserializeObject<List<ModParity.RequiredMod>>(error.Substring(ModParity.MismatchReasonPrefix.Length));
             if (missing == null || missing.Count == 0) return;
 
-            // server and server_name are only a cross-check for the launcher, which deletes any stale file
-            // before launching.
             var payload = new
             {
                 schema = 1,

@@ -6,9 +6,8 @@ using System.Text;
 
 namespace TavernLib.Backend;
 
-/// <summary>GETs through WinHTTP rather than Mono's HttpClient: reconcile runs before Unity registers its TLS
-/// provider, when Mono's legacy TLS can't complete a handshake with GitHub. WinHTTP uses the system's (or the
-/// Wine host's) TLS and proxy settings, PAC included. One instance is one session, reused for a pass.</summary>
+// WinHTTP rather than Mono's HttpClient: reconcile runs before Unity registers its TLS provider, when Mono's
+// legacy TLS can't complete a handshake with GitHub. One instance is one session, reused for a pass.
 public sealed class NativeHttp : IDisposable
 {
     private const string UserAgent = "TavernLib";
@@ -28,9 +27,7 @@ public sealed class NativeHttp : IDisposable
         _session = IntPtr.Zero;
     }
 
-    /// <summary>Streams url's body into destination. Each step (connecting, the response, each read) may
-    /// take at most stallTimeout, and the whole transfer must finish by deadlineUtc. Throws on a non-2xx
-    /// status or past maxBytes.</summary>
+    // stallTimeout bounds each step (connect, response, each read); deadlineUtc bounds the whole transfer.
     public void Download(string url, Stream destination, DateTime deadlineUtc, TimeSpan stallTimeout, long maxBytes)
     {
         var uri = new Uri(url);
@@ -90,7 +87,6 @@ public sealed class NativeHttp : IDisposable
     private static IOException TooLarge(Uri uri, long maxBytes) =>
         new($"{uri.Host} sent more than {maxBytes / (1024 * 1024)} MB for {uri.AbsolutePath}; refusing it.");
 
-    // Opened on first use, so a failure surfaces per request like any other.
     private IntPtr Session()
     {
         if (_session != IntPtr.Zero) return _session;

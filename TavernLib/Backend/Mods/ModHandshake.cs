@@ -7,8 +7,7 @@ using Newtonsoft.Json;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>The ping/pong mods_hash and mods_list from what's enabled in Mods/. Twin of install.py's
-/// handshake_snapshot; the hash must stay byte-identical.</summary>
+// Twin of install.py's handshake_snapshot; the hash must stay byte-identical.
 public static class ModHandshake
 {
     public class Entry
@@ -22,8 +21,7 @@ public static class ModHandshake
         [JsonProperty("scenes", NullValueHandling = NullValueHandling.Ignore)] public List<string> Scenes { get; set; }
     }
 
-    // Snapshot runs on every ping, mods_list and join, and Mods/ only changes in boot reconcile, which
-    // finishes before the listener starts.
+    // Runs on every ping, mods_list and join; Mods/ only changes in boot reconcile, before the listener starts.
     private const int CacheTtlSeconds = 5;
     private static readonly object CacheLock = new();
     private static (string GameDir, DateTime AtUtc, (string, List<Entry>, List<UntrackedMod>) Value) _cache;
@@ -42,7 +40,6 @@ public static class ModHandshake
     private static (string, List<Entry>, List<UntrackedMod>) BuildSnapshot(string gameDir)
     {
         var (installed, untrackedMods) = ModInstaller.ScanMods(gameDir);
-        // Only what this server runs: a build installed just for pc in the same folder is invisible to it.
         var mods = installed
             .Where(m => m.Enabled && m.Record.Lists(ModManagerConstants.TargetServer))
             .Select(m => m.Record)
@@ -58,8 +55,7 @@ public static class ModHandshake
             })
             .ToList();
 
-        // Lowercase then ordinal, as install.py's name.lower() sort; OrdinalIgnoreCase upper-cases, which
-        // orders '_' differently.
+        // As install.py's name.lower() sort; OrdinalIgnoreCase upper-cases, which orders '_' differently.
         var untracked = untrackedMods.Where(u => u.Enabled).OrderBy(u => u.Name.ToLowerInvariant(), StringComparer.Ordinal).ToList();
 
         // parity_required is in the hash so a required/optional flip without a version bump reaches clients;
@@ -70,8 +66,7 @@ public static class ModHandshake
         return (BackendUtils.HashDigest(string.Join("\n", lines)), mods, untracked);
     }
 
-    // Twin of install.py's _untracked_stamp: whole-second mtime, never a content hash (this runs on every
-    // ping), and not size, which a directory has no portable value for. Anything unreadable stamps "?".
+    // Twin of install.py's _untracked_stamp: mtime, never a content hash, since this runs on every ping.
     private static string UntrackedStamp(string gameDir, UntrackedMod mod)
     {
         try

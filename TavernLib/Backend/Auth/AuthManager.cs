@@ -140,7 +140,7 @@ internal class AuthManager
         await WriteResponse(stream, response);
     }
 
-    // A 4-byte big-endian length, then the JSON body: the full mods list can outgrow one recv.
+    // Length-prefixed (4-byte big-endian): the list can outgrow one recv.
     private async Task WriteModsListResponse(Stream stream)
     {
         var (_, mods, untracked) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);

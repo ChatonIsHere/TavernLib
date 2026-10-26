@@ -83,8 +83,6 @@ public static class PlayerJoinFilter
         }
     }
 
-    // Denies a join whose TavernMods claim (on the JWT FilterInvalidTokens reads), or lack of one, fails
-    // ModParity.CheckJoin.
     private static async Task<bool> FilterModParity(Connection connection, Stream stream)
     {
         List<ModParity.RequiredMod> mismatches;
@@ -104,8 +102,7 @@ public static class PlayerJoinFilter
         }
         catch (Exception e)
         {
-            // A fault on this end lets the join through, loudly: parity is defense in depth and the player
-            // can't fix it.
+            // Let through, loudly: parity is defense in depth and the player can't fix a fault on this end.
             TavernLogger.Error($"Error in FilterModParity for {connection.IpAddress}; skipping parity check for this join. {e}");
             return true;
         }

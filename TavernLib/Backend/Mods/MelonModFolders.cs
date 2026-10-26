@@ -9,12 +9,9 @@ using MelonLoader.Utils;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>
-/// MelonLoader lists Mods/ subfolders once, before any plugin runs, and skips dot folders, so neither .pc/ nor
-/// .server/ ever loads on its own. Sync edits that list (a private field of MelonLoader 0.7's
-/// MelonFolderHandler) to match the disk after reconcile, plus this process's target build of every enabled
-/// mod of ours that lists it. If the field moves, managed mods don't load at all, never the wrong build.
-/// </summary>
+// MelonLoader lists Mods/ subfolders once, before any plugin runs, skipping dot folders like .pc/ and
+// .server/. Sync edits that private list to match the disk after reconcile, plus this process's build of
+// each enabled mod of ours. If the field moves, managed mods don't load at all, never the wrong build.
 internal static class MelonModFolders
 {
     // MelonFolderHandler's own default exclusions, besides names starting with '.' or '~'.
@@ -22,7 +19,6 @@ internal static class MelonModFolders
     // Below Mods/, MelonLoader files these as user libs or plugins, never mod folders; too late for either now.
     private static readonly string[] OtherScanNames = ["UserLibs", "Plugins"];
 
-    // .server/ builds in a server process (/start_server), .pc/ in any other.
     public static void SyncForBoot(bool serverProcess)
     {
         try
@@ -35,8 +31,6 @@ internal static class MelonModFolders
         }
     }
 
-    // _modDirs becomes MelonLoader's own Mods/ scan of the disk as it is now, plus .<target>/ (and its
-    // non-excluded subfolders) of each folder whose record is enabled, ours, and lists target.
     internal static void Sync(string gameDir, string target)
     {
         var loader = LoaderConfig.Current.Loader;
@@ -60,7 +54,7 @@ internal static class MelonModFolders
             if (!loader.DisableSubFolderManifest && !File.Exists(Path.Combine(dir, ModManagerConstants.RecordName))) continue;
             AddWithSubfolders(dir, wanted);
 
-            // The record decides, never the folder name: anything that isn't ours, or is disabled, loads no build.
+            // The record decides, never the folder name.
             var name = Path.GetFileName(dir);
             var build = Path.Combine(dir, "." + target);
             if (Directory.Exists(build) && ModRecord.Read(gameDir, name, out var enabled) is { } record && enabled && record.Lists(target))
@@ -88,8 +82,7 @@ internal static class MelonModFolders
             TavernLogger.Msg($"mod folders: loading the {target} build of {string.Join(", ", builds)}.");
     }
 
-    // MelonLoader loads every non-excluded folder beneath a mod folder too, with no manifest required below
-    // the first level.
+    // MelonLoader also loads every non-excluded folder beneath a mod folder, manifest or not.
     private static void AddWithSubfolders(string dir, List<string> into)
     {
         into.Add(dir);

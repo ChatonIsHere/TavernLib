@@ -15,7 +15,6 @@ public static class ModManagerConstants
 
     // Also MelonLoader's folder-load marker (an existence check; the content is never read).
     public const string RecordName = "manifest.json";
-    // The record's name while the mod is disabled, so MelonLoader stops loading the folder.
     public const string DisabledRecordName = "manifest.disabled.json";
     // MelonLoader loads any Mods/*.dll, so only a rename disables a loose one.
     public const string DisabledDllSuffix = ".disabled";
@@ -28,16 +27,14 @@ public static class ModManagerConstants
 
 public static class ModPaths
 {
-    // Twin of layout.py's _safe_basename: the last-line traversal guard for every id and filename from a
-    // repo before it touches disk.
+    // Twin of layout.py's _safe_basename: the last-line traversal guard.
     public static string SafeBasename(string name)
     {
         if (string.IsNullOrEmpty(name) || name == "." || name == "..")
             throw new ModManagerException($"Unsafe filename '{name}'.");
         if (name.Contains("/") || name.Contains("\\"))
             throw new ModManagerException($"Filename '{name}' must not contain a path separator.");
-        // "C:evil.dll" is another directory and "mod.dll:x" an NTFS stream, and Path.GetFileName treats
-        // neither colon as a directory part.
+        // "C:evil.dll" is another directory and "mod.dll:x" an NTFS stream; GetFileName misses both.
         if (name.Contains(":"))
             throw new ModManagerException($"Filename '{name}' must not contain a colon.");
         if (Path.GetFileName(name) != name)
@@ -68,8 +65,7 @@ public static class ModPaths
 
 public class ModManagerException(string message) : Exception(message)
 {
-    // The message and every inner exception's, outermost first: the useful cause of a failed fetch is often
-    // only in an inner one.
+    // The useful cause of a failed fetch is often only in an inner exception.
     public static string Describe(Exception e)
     {
         var message = e.Message;
