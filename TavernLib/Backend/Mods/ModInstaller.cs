@@ -248,7 +248,7 @@ public static class ModInstaller
             }
             File.Move(loose, loose + DisabledDllSuffix);
             TavernLogger.Warn($"mod install: Mods/{name} was a loose copy of a DLL that {modId} just installed; "
-                + "disabled it so MelonLoader doesn't load it twice. Rename it back to {name} to restore it.");
+                + $"disabled it so MelonLoader doesn't load it twice. Rename it back to {name} to restore it.");
         }
     }
 
