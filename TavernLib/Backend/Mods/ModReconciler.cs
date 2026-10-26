@@ -81,7 +81,7 @@ public static class ModReconciler
             }
         }
 
-        // A build installed only for pc in the same folder is a player's, not ours.
+        // A build installed only for client_windows in the same folder is a player's, not ours.
         private bool RunsHere(string id) => _installed.TryGetValue(id, out var info) && info.Record.Lists(Target);
 
         public void Run(ModsList modsList)

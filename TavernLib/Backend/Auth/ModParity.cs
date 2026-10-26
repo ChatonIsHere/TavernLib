@@ -13,7 +13,7 @@ public static class ModParity
 
     // A superset of what a claim is checked against, so also the join gate's early exit.
     public static bool BlocksClaimless(ModHandshake.Entry mod) =>
-        mod.ParityRequired && (mod.Targets.Contains(ModManagerConstants.TargetPc) || mod.Targets.Contains(ModManagerConstants.TargetQuest));
+        mod.ParityRequired && (mod.Targets.Contains(ModManagerConstants.TargetClientWindows) || mod.Targets.Contains(ModManagerConstants.TargetClientAndroid));
 
     public class RequiredMod
     {
@@ -29,7 +29,7 @@ public static class ModParity
         var clientMods = ReadClaim(claim);
         bool Fails(ModHandshake.Entry mod) => clientMods == null
             ? BlocksClaimless(mod)
-            : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetPc)
+            : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetClientWindows)
               && (string.IsNullOrEmpty(mod.Version) || !clientMods.TryGetValue(mod.Id, out var have) || have != mod.Version);
         return serverMods.Where(Fails).Select(m => new RequiredMod { Id = m.Id, Version = m.Version, SourceRepo = m.SourceRepo }).ToList();
     }

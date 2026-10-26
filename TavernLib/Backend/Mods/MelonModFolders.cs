@@ -9,8 +9,8 @@ using MelonLoader.Utils;
 
 namespace TavernLib.Backend.Mods;
 
-// MelonLoader lists Mods/ subfolders once, before any plugin runs, skipping dot folders like .pc/ and
-// .server/. Sync edits that private list to match the disk after reconcile, plus this process's build of
+// MelonLoader lists Mods/ subfolders once, before any plugin runs, skipping dot folders like
+// .client_windows/ and .server/. Sync edits that private list to match the disk after reconcile, plus this process's build of
 // each enabled mod of ours. If the field moves, managed mods don't load at all, never the wrong build.
 internal static class MelonModFolders
 {
@@ -23,7 +23,7 @@ internal static class MelonModFolders
     {
         try
         {
-            Sync(MelonEnvironment.GameRootDirectory, serverProcess ? ModManagerConstants.TargetServer : ModManagerConstants.TargetPc);
+            Sync(MelonEnvironment.GameRootDirectory, serverProcess ? ModManagerConstants.TargetServer : ModManagerConstants.TargetClientWindows);
         }
         catch (Exception e)
         {
