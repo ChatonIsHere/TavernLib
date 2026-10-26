@@ -72,7 +72,8 @@ internal static class MelonModFolders
 
             var name = Path.GetFileName(dir);
             var build = Path.Combine(dir, "." + target);
-            if (Directory.Exists(build) && OwnedEnabledRecord(gameDir, name)?.Lists(target) == true)
+            // The record decides, never the folder name: anything that isn't ours, or is disabled, loads no build.
+            if (Directory.Exists(build) && ModRecord.Read(gameDir, name, out var enabled) is { } record && enabled && record.Lists(target))
             {
                 AddWithSubfolders(build, wanted);
                 builds.Add(name);
@@ -95,21 +96,6 @@ internal static class MelonModFolders
         }
         if (builds.Count > 0)
             TavernLogger.Msg($"mod folders: loading the {target} build of {string.Join(", ", builds)}.");
-    }
-
-    // The record decides, never the folder name: anything that isn't ours,
-    // or is disabled, loads no build.
-    private static ModRecord OwnedEnabledRecord(string gameDir, string folder)
-    {
-        try
-        {
-            var record = ModRecord.Read(gameDir, folder, out var enabled);
-            return enabled ? record : null;
-        }
-        catch (ModManagerException)
-        {
-            return null;
-        }
     }
 
     // MelonLoader loads every non-excluded folder beneath a mod folder too, with

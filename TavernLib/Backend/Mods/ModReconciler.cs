@@ -136,7 +136,7 @@ public static class ModReconciler
             {
                 try
                 {
-                    if (ModInstaller.EnableMod(gameDir, id))
+                    if (ModInstaller.SetEnabled(gameDir, id, true))
                         TavernLogger.Msg($"mod reconcile: re-enabled '{id}'.");
                 }
                 catch (Exception e)
@@ -151,7 +151,7 @@ public static class ModReconciler
                 if (!info.Enabled || !info.Record.Lists(Target)) continue;
                 try
                 {
-                    if (ModInstaller.DisableMod(gameDir, info.Record.Id))
+                    if (ModInstaller.SetEnabled(gameDir, info.Record.Id, false))
                         TavernLogger.Msg($"mod reconcile: disabled '{info.Record.Id}' ("
                             + (_skipped.TryGetValue(info.Record.Id, out var why) ? why : "no longer in the configured mods list") + ").");
                 }
@@ -210,7 +210,10 @@ public static class ModReconciler
         {
             try
             {
-                ModInstaller.InstallModClosure(gameDir, http, target, deps, libs, Target, _deadline);
+                // Root last, so a failure partway leaves new dependencies beside the old root, which still loads.
+                foreach (var m in deps) ModInstaller.InstallMod(gameDir, http, m, Target, _deadline);
+                foreach (var lib in libs) ModInstaller.InstallLibraryDependency(gameDir, http, lib, _deadline);
+                ModInstaller.InstallMod(gameDir, http, target, Target, _deadline);
             }
             finally
             {
