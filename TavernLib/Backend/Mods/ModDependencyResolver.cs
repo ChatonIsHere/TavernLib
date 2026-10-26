@@ -1,57 +1,39 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using TavernLib;
 
 namespace TavernLib.Backend.Mods;
 
 public static class ModDependencyResolver
 {
-    /// <summary>
-    /// Twin of resolve.py's resolve_dependencies; the verdicts must match. The
-    /// closure of the roots (roots excluded) by minimum-version-with-major-lock:
-    /// within the required major, the highest indexed version at or above the
-    /// running minimum. Cycles, chains deeper than MaxDependencyDepth and
-    /// cross-major demands throw. A dependency with no artifact for
-    /// <paramref name="target"/> is pruned with everything only it needed: "M
-    /// depends on pc-only D" can only mean M's pc build needs D.
-    /// </summary>
-    public static List<ModManifest> ResolveDependencies(
-        IReadOnlyList<ModManifest> roots,
-        IReadOnlyList<ModSummary> summaryIndex,
-        Func<string, string, string, ModManifest> fetchManifest,
-        string target)
+    private const int MaxDepth = 5;
+
+    /// <summary>Twin of resolve.py's resolve_dependencies; the verdicts must match. The root's dependency
+    /// closure by minimum-version-with-major-lock: within the required major, the highest indexed version at
+    /// or above the running minimum. Cycles, chains deeper than MaxDepth and cross-major demands throw. A
+    /// dependency with no artifact for target is pruned with everything only it needed: "M depends on
+    /// pc-only D" can only mean M's pc build needs D. The root itself is never in the result, since any
+    /// path back to it is a cycle.</summary>
+    public static List<ModManifest> ResolveDependencies(ModManifest root, IReadOnlyList<ModSummary> index,
+        Func<string, string, string, ModManifest> fetchManifest, string target)
     {
-        if (!ModManagerConstants.KnownTargets.Contains(target))
-            throw new ModManagerException(
-                $"ResolveDependencies needs one of the targets {string.Join(", ", ModManagerConstants.KnownTargets)}, got '{target}'.");
-
-        // Read off the per-version MANIFEST, never the index's targets: only
-        // the manifest says which artifacts this build can actually install.
-        bool BuildsForTarget(ModManifest m) => m.ArtifactFor(target) != null;
-
-        var summ = new Dictionary<(string Id, int Major), ModSummary>();
-        foreach (var s in summaryIndex) summ[(s.Id, s.Major)] = s;
-
-        var rootIds = new HashSet<string>(roots.Select(r => r.Id));
+        var summaries = index.ToDictionary(s => (s.Id, s.Major)); // FetchIndexes yields one row per (id, major)
         var chosen = new Dictionary<string, ModManifest>();
-        var reqMin = new Dictionary<string, ModVersion>();   // the required major is reqMin[id].Major
+        var reqMin = new Dictionary<string, ModVersion>(); // the required major is reqMin[id].Major
         var reqBy = new Dictionary<string, (string Requirer, string Constraint)>();
-        var pruned = new HashSet<string>();   // ids with no target build, so each is fetched at most once
+        var pruned = new HashSet<string>(); // no target build, so each is fetched at most once
 
         void Visit(ModManifest mod, List<string> chain)
         {
-            if (chain.Count > ModManagerConstants.MaxDependencyDepth)
+            if (chain.Count > MaxDepth)
                 throw new ModManagerException(
-                    $"Dependency chain too deep (> {ModManagerConstants.MaxDependencyDepth}): {string.Join(" -> ", chain)}. This is almost certainly a mistake in the mods' dependency data.");
+                    $"Dependency chain too deep (> {MaxDepth}): {string.Join(" -> ", chain)}. This is almost certainly a mistake in the mods' dependency data.");
 
-            foreach (var kv in (mod.Dependencies ?? new Dictionary<string, string>()).OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            foreach (var kv in mod.Dependencies.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
-                var depId = kv.Key;
-                var minV = kv.Value;
-                if (chain.Contains(depId))
-                    throw new ModManagerException($"Circular dependency: {string.Join(" -> ", chain.Append(depId))}.");
-                AddRequirement(depId, minV, mod.Name ?? mod.Id, chain);
+                if (chain.Contains(kv.Key))
+                    throw new ModManagerException($"Circular dependency: {string.Join(" -> ", chain.Append(kv.Key))}.");
+                AddRequirement(kv.Key, kv.Value, mod.Name, chain);
             }
         }
 
@@ -59,8 +41,7 @@ public static class ModDependencyResolver
         {
             if (pruned.Contains(depId))
             {
-                // Already pruned: reported again so this requirer isn't invisible, but not
-                // re-fetched or re-walked.
+                // Reported again so this requirer isn't invisible, but not re-fetched or re-walked.
                 TavernLogger.Warn($"{requirer} depends on '{depId}', which has no {target} build; skipped.");
                 return;
             }
@@ -83,11 +64,10 @@ public static class ModDependencyResolver
                 throw new ModManagerException(
                     $"Dependency conflict on '{depId}': {prevName} needs {prevC} (major {curMin.Major}) but {requirer} needs {minV} (major {major}). These majors can't be satisfied together.");
             }
-
             var newMin = hasPrev && curMin > mv ? curMin : mv;
 
-            summ.TryGetValue((depId, major), out var summary);
-            var available = summary?.Versions ?? new List<string>();
+            summaries.TryGetValue((depId, major), out var summary);
+            var available = summary?.Versions ?? [];
             var candidates = available.Where(v => ModVersion.Parse(v) >= newMin).ToList();
             if (candidates.Count == 0)
             {
@@ -105,15 +85,15 @@ public static class ModDependencyResolver
 
             if (chosen.TryGetValue(depId, out var prevChosen) && prevChosen.Version == pickVersion)
             {
-                Record();       // already selected at this exact version
+                Record();
                 return;
             }
 
             var manifest = fetchManifest(depId, pickVersion, summary.SourceRepo);
-            if (!BuildsForTarget(manifest))
+            if (manifest.ArtifactFor(target) == null)
             {
-                // Pruned before its constraints are recorded, so a mod we aren't installing
-                // can't raise a diamond conflict, and nothing only it needed is walked.
+                // Pruned before its constraints are recorded, so a mod we aren't installing can't raise a
+                // diamond conflict, and nothing only it needed is walked.
                 pruned.Add(depId);
                 TavernLogger.Warn($"{requirer} depends on '{depId}' {pickVersion}, which has no {target} build; skipped, along with anything only it needed.");
                 return;
@@ -124,9 +104,7 @@ public static class ModDependencyResolver
             Visit(manifest, chain.Append(depId).ToList());
         }
 
-        foreach (var root in roots)
-            Visit(root, new List<string> { root.Id });
-
-        return chosen.Where(kv => !rootIds.Contains(kv.Key)).Select(kv => kv.Value).ToList();
+        Visit(root, [root.Id]);
+        return chosen.Values.ToList();
     }
 }
