@@ -69,7 +69,7 @@ public static class ModReconciler
     private sealed class Pass(string gameDir, NativeHttp http, List<string> repos, string scene)
     {
         private readonly DateTime _deadline = DateTime.UtcNow.AddSeconds(ModManagerConstants.ReconcileMaxSeconds);
-        private readonly ModRepoClient _client = new(http);
+        private readonly ModRepoClient _client = new(http, repos);
         // Listed but left out, by id, with why, so the disable pass can say so
         // rather than calling them unlisted.
         private readonly Dictionary<string, string> _skipped = new();
@@ -89,7 +89,7 @@ public static class ModReconciler
         {
             try
             {
-                return _client.FetchIndexes(repos);
+                return _client.FetchIndexes();
             }
             catch (Exception e)
             {
@@ -120,7 +120,7 @@ public static class ModReconciler
                     for (var j = i; j < desiredEntries.Count; j++)
                     {
                         var id = desiredEntries[j].Id;
-                        if (_installed.TryGetValue(id, out var left) && !ModScenesField.RunsIn(left.Record.Scenes, scene))
+                        if (_installed.TryGetValue(id, out var left) && !ModManifest.RunsIn(left.Record.Scenes, scene))
                             _skipped[id] = SceneReason;
                         else
                             AddInstalledClosure(id, keepIds);
@@ -257,8 +257,8 @@ public static class ModReconciler
             {
                 var preferRepo = PreferredRepo(entry, existing);
                 var target = entry.PinnedVersion != null
-                    ? _client.FetchManifest(repos, entry.Id, entry.PinnedVersion, preferRepo)
-                    : _client.ResolveModById(repos, entry.Id, preferRepo);
+                    ? _client.FetchManifest(entry.Id, entry.PinnedVersion, preferRepo)
+                    : _client.FetchLatest(entry.Id, preferRepo);
 
                 // Skipped, not refused: nobody is there to ask, and booting
                 // without the mod beats booting something that can't run here.
@@ -269,7 +269,7 @@ public static class ModReconciler
                     _skipped[entry.Id] = $"it has no {Target} build";
                     return keep;
                 }
-                if (!ModScenesField.RunsIn(target.Scenes, scene))
+                if (!ModManifest.RunsIn(target.Scenes, scene))
                 {
                     TavernLogger.Warn($"mod reconcile: '{entry.Id}' {target.Version} works in the "
                         + $"{string.Join(", ", target.Scenes)} scene(s), not the {scene} scene this server runs; skipped.");
@@ -283,7 +283,7 @@ public static class ModReconciler
                     var key = (id, version);
                     if (!fetched.TryGetValue(key, out var m))
                     {
-                        m = _client.FetchManifest(repos, id, version, sourceRepo);
+                        m = _client.FetchManifest(id, version, sourceRepo);
                         fetched[key] = m;
                     }
                     return m;
@@ -291,8 +291,7 @@ public static class ModReconciler
 
                 // Dependencies with no server build are pruned rather than
                 // installed into a process that would throw loading them.
-                List<ModManifest> ResolveDeps() => ModDependencyResolver.ResolveDependencies(
-                    new List<ModManifest> { target }, Index, Fetch, Target);
+                List<ModManifest> ResolveDeps() => ModDependencyResolver.ResolveDependencies(target, Index, Fetch, Target);
 
                 var needsInstall = !RunsHere(entry.Id) || existing.Record.Version != target.Version;
                 List<ModManifest> deps = null;
@@ -342,7 +341,7 @@ public static class ModReconciler
             {
                 // The installed record still knows its scenes, so an unreachable
                 // repo can't let back in a mod this server's scene rules out.
-                if (existing != null && !ModScenesField.RunsIn(existing.Record.Scenes, scene))
+                if (existing != null && !ModManifest.RunsIn(existing.Record.Scenes, scene))
                 {
                     _skipped[entry.Id] = SceneReason;
                     return keep;

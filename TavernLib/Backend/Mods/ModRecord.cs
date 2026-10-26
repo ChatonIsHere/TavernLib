@@ -76,7 +76,7 @@ public class ModRecord
     {
         var record = new JObject
         {
-            ["manifest_version"] = mod.ManifestVersion,
+            ["manifest_version"] = ModManifest.SupportedMajor,
             ["id"] = mod.Id,
             ["name"] = mod.Name,
             ["version"] = mod.Version,

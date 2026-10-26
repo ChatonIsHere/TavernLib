@@ -4,20 +4,13 @@ using System.Linq;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>Exactly MAJOR.MINOR.PATCH, with no pre-release forms so ordering
-/// never guesses. Twin of version.py's _parse_version.</summary>
-public readonly struct ModVersion : IComparable<ModVersion>
+/// <summary>Exactly MAJOR.MINOR.PATCH, with no pre-release forms so ordering never guesses. Twin of
+/// version.py's _parse_version.</summary>
+public readonly struct ModVersion(int major, int minor, int patch) : IComparable<ModVersion>
 {
-    public int Major { get; }
-    public int Minor { get; }
-    public int Patch { get; }
-
-    private ModVersion(int major, int minor, int patch)
-    {
-        Major = major;
-        Minor = minor;
-        Patch = patch;
-    }
+    public int Major { get; } = major;
+    public int Minor { get; } = minor;
+    public int Patch { get; } = patch;
 
     public static ModVersion Parse(string v)
     {
@@ -30,8 +23,8 @@ public readonly struct ModVersion : IComparable<ModVersion>
         return new ModVersion(Segment(v, parts[0]), Segment(v, parts[1]), Segment(v, parts[2]));
     }
 
-    // ASCII digits only, as version.py's _SEGMENT: int.TryParse would also take
-    // a sign, inner whitespace and other cultures' digits.
+    // ASCII digits only, as version.py's _SEGMENT: int.TryParse alone would also take a sign, inner
+    // whitespace and other cultures' digits.
     private static int Segment(string v, string part)
     {
         if (part.Length == 0 || part.Any(c => c < '0' || c > '9'))
@@ -55,14 +48,7 @@ public readonly struct ModVersion : IComparable<ModVersion>
         }
     }
 
-    public int CompareTo(ModVersion other)
-    {
-        var c = Major.CompareTo(other.Major);
-        if (c != 0) return c;
-        c = Minor.CompareTo(other.Minor);
-        if (c != 0) return c;
-        return Patch.CompareTo(other.Patch);
-    }
+    public int CompareTo(ModVersion other) => (Major, Minor, Patch).CompareTo((other.Major, other.Minor, other.Patch));
 
     public override string ToString() => $"{Major}.{Minor}.{Patch}";
 

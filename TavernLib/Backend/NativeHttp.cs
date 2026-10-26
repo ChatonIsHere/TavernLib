@@ -6,32 +6,20 @@ using System.Text;
 
 namespace TavernLib.Backend;
 
-/// <summary>
-/// GETs through WinHTTP rather than Mono's HttpClient: reconcile runs before
-/// Unity registers its TLS provider, when Mono's legacy TLS can't complete a
-/// handshake with GitHub. WinHTTP uses the system's (or the Wine host's) TLS and
-/// proxy settings, PAC included. One instance is one session, reused for a pass.
-/// </summary>
+/// <summary>GETs through WinHTTP rather than Mono's HttpClient: reconcile runs before Unity registers its TLS
+/// provider, when Mono's legacy TLS can't complete a handshake with GitHub. WinHTTP uses the system's (or the
+/// Wine host's) TLS and proxy settings, PAC included. One instance is one session, reused for a pass.</summary>
 public sealed class NativeHttp : IDisposable
 {
     private const string UserAgent = "TavernLib";
     private IntPtr _session;
 
-    /// <summary>GETs url and returns the body as UTF-8 text. Throws on a non-2xx
-    /// status, when timeout passes, or past maxBytes.</summary>
     public string GetString(string url, TimeSpan timeout, long maxBytes)
     {
         using var body = new MemoryStream();
-        Get(url, DateTime.UtcNow + timeout, timeout, body, maxBytes);
+        Download(url, body, DateTime.UtcNow + timeout, timeout, maxBytes);
         return Encoding.UTF8.GetString(body.ToArray());
     }
-
-    /// <summary>Streams url's body into destination. Any single step - connecting,
-    /// waiting for the response, each read - may take at most stallTimeout, and
-    /// the whole transfer has to finish by deadlineUtc. Throws on a non-2xx status
-    /// or past maxBytes.</summary>
-    public void Download(string url, Stream destination, DateTime deadlineUtc, TimeSpan stallTimeout, long maxBytes) =>
-        Get(url, deadlineUtc, stallTimeout, destination, maxBytes);
 
     public void Dispose()
     {
@@ -40,7 +28,10 @@ public sealed class NativeHttp : IDisposable
         _session = IntPtr.Zero;
     }
 
-    private void Get(string url, DateTime deadlineUtc, TimeSpan stallTimeout, Stream destination, long maxBytes)
+    /// <summary>Streams url's body into destination. Each step (connecting, the response, each read) may
+    /// take at most stallTimeout, and the whole transfer must finish by deadlineUtc. Throws on a non-2xx
+    /// status or past maxBytes.</summary>
+    public void Download(string url, Stream destination, DateTime deadlineUtc, TimeSpan stallTimeout, long maxBytes)
     {
         var uri = new Uri(url);
         if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
@@ -61,8 +52,7 @@ public sealed class NativeHttp : IDisposable
             var timeoutMs = (int)Math.Min(RemainingMs(deadlineUtc, url), stallTimeout.TotalMilliseconds);
             Check(WinHttpSetTimeouts(request, timeoutMs, timeoutMs, timeoutMs, timeoutMs), "WinHttpSetTimeouts");
 
-            // Redirects are followed by WinHTTP itself (GitHub release assets
-            // redirect to their CDN), HTTPS-to-HTTP excepted.
+            // WinHTTP follows redirects itself (GitHub release assets redirect to their CDN), HTTPS-to-HTTP excepted.
             Check(WinHttpSendRequest(request, IntPtr.Zero, 0, IntPtr.Zero, 0, 0, IntPtr.Zero), "WinHttpSendRequest");
             Check(WinHttpReceiveResponse(request, IntPtr.Zero), "WinHttpReceiveResponse");
 
@@ -104,9 +94,8 @@ public sealed class NativeHttp : IDisposable
     private IntPtr Session()
     {
         if (_session != IntPtr.Zero) return _session;
-        // Automatic proxy (Windows 8.1+) reads the same settings as the rest of
-        // the system, PAC scripts included; anything older takes the
-        // WinHTTP-configured proxy instead.
+        // Automatic proxy (Windows 8.1+) reads the system's settings, PAC included; anything older takes
+        // the WinHTTP-configured proxy instead.
         _session = WinHttpOpen(UserAgent, WinHttpAccessTypeAutomaticProxy, null, null, 0);
         if (_session == IntPtr.Zero)
             _session = WinHttpOpen(UserAgent, WinHttpAccessTypeDefaultProxy, null, null, 0);
@@ -123,9 +112,7 @@ public sealed class NativeHttp : IDisposable
 
     private static void Check(bool ok, string call)
     {
-        if (ok) return;
-        var code = Marshal.GetLastWin32Error();
-        throw new IOException($"{call} failed: {Describe(code)}");
+        if (!ok) throw new IOException($"{call} failed: {Describe(Marshal.GetLastWin32Error())}");
     }
 
     private static string Describe(int code) => code switch
