@@ -9,7 +9,7 @@ public static class ModDependencyResolver
     private const int MaxDepth = 5;
 
     // Twin of resolve.py's resolve_dependencies; the verdicts must match. A dependency with no build for
-    // target is pruned with everything only it needed: "M depends on pc-only D" can only mean M's pc build does.
+    // target is pruned with everything only it needed: "M depends on Windows-only D" can only mean M's Windows build does.
     public static List<ModManifest> ResolveDependencies(ModManifest root, IReadOnlyList<ModSummary> index,
         Func<string, string, string, ModManifest> fetchManifest, string target)
     {

@@ -7,11 +7,11 @@ public static class ModManagerConstants
 {
     public const string DefaultRepo = "https://raw.githubusercontent.com/ModdingTavern/TavernMods/main";
 
-    public const string TargetPc = "pc";
+    public const string TargetClientWindows = "client_windows";
     public const string TargetServer = "server";
-    public const string TargetQuest = "quest";
+    public const string TargetClientAndroid = "client_android";
     // Any other target name is ignored, so one added later doesn't break this build.
-    public static readonly string[] KnownTargets = [TargetPc, TargetServer, TargetQuest];
+    public static readonly string[] KnownTargets = [TargetClientWindows, TargetServer, TargetClientAndroid];
 
     // Also MelonLoader's folder-load marker (an existence check; the content is never read).
     public const string RecordName = "manifest.json";
