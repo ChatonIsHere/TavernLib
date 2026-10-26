@@ -87,9 +87,8 @@ public class Tavern : MelonPlugin
                 TavernLogger.Msg("Booting TavernLib in server mode");
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) TeenyPatches.EnsureConsoleToken();
 
-                // Only a headless server reconciles Mods/ (with /launcherauth the launcher manages them). Before
-                // TavernManager, whose listener answers from Mods/, and the log-archive timer, whose first tick
-                // gives up for good if NLog's target isn't up 10 s later.
+                // Before TavernManager, whose listener answers from Mods/, and the log-archive timer, whose first
+                // tick gives up for good if NLog's target isn't up 10 s later.
                 if (CommandLineArguments.Contains(TavernArgs.DontManageAuth))
                 {
                     if (CommandLineArguments.Contains(TavernArgs.ModsListFile))

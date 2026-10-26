@@ -7,7 +7,6 @@ using Newtonsoft.Json.Linq;
 
 namespace TavernLib.Backend.Mods;
 
-// A pinned, exact-version file a mod needs in UserLibs/: not a mod, so no id and no version range.
 public class LibraryDependency
 {
     public string Name { get; private set; }
@@ -30,28 +29,25 @@ public class LibraryDependency
     }
 }
 
-/// <summary>One build in a manifest's artifacts. Twin of manifest.py's _artifact_from_dict: every entry is
-/// checked, but only one with a known package is ever installed, and only for a target this build
-/// knows.</summary>
+// Twin of manifest.py's _artifact_from_dict.
 public class ModArtifact
 {
     // The compiled manifest's key order, which a record keeps.
     private static readonly string[] KeyOrder = ["targets", "download_url", "sha256", "package", "library_dependencies"];
     private static readonly string[] LibraryKeyOrder = ["name", "download_url", "sha256", "filename"];
 
-    public List<string> Targets { get; private set; } // every name listed, known or not
+    public List<string> Targets { get; private set; }
     public string DownloadUrl { get; private set; }
     public string Sha256 { get; private set; }
-    public string Package { get; private set; } // null when absent or not a string
+    public string Package { get; private set; }
     public List<LibraryDependency> LibraryDependencies { get; private set; }
     private JObject _raw;
 
-    // An unknown package leaves the artifact ignored, like an unknown target.
     public bool Usable => Package is "dll" or "zip";
 
     public bool Builds(string target) => Usable && Targets.Contains(target);
 
-    // Twin of manifest.py's install_name: the download URL's basename if it's safe and ends in .dll, else <id>.dll.
+    // Twin of manifest.py's install_name.
     public string InstallName(string modId)
     {
         string name;
@@ -90,7 +86,6 @@ public class ModArtifact
         };
     }
 
-    // The manifest's own values, known keys in KeyOrder, then any others as they came.
     internal JObject ToRecordJson()
     {
         var copy = Reordered(_raw, KeyOrder);
@@ -110,7 +105,6 @@ public class ModArtifact
     }
 }
 
-// A per-version manifest from manifests/<author>/<repo>/<version>.json, or a latest*.json pointer.
 public class ModManifest
 {
     internal const int SupportedMajor = 2;
@@ -122,18 +116,15 @@ public class ModManifest
     public string Description { get; private set; }
     public bool ParityRequired { get; private set; }
     public Dictionary<string, string> Dependencies { get; private set; }
-    public List<ModArtifact> Artifacts { get; private set; } // in manifest order, ignored ones included: a record keeps them all
+    public List<ModArtifact> Artifacts { get; private set; } // ignored ones included: a record keeps them all
     public string SourceRepo { get; private set; }
     public List<string> Scenes { get; private set; } // null means every scene
 
-    // A target no usable artifact lists is one the mod doesn't support.
     public ModArtifact ArtifactFor(string target) => Artifacts.FirstOrDefault(a => a.Builds(target));
 
-    // Whether a mod with these scenes works in scene; an unknown scene (null) never rules one out.
     public static bool RunsIn(List<string> scenes, string scene) => scenes == null || scene == null || scenes.Contains(scene);
 
-    /// <summary>Twin of manifest.py's _manifest_from_dict: null for an unsupported schema (warned and
-    /// dropped), throws for a broken manifest.</summary>
+    // Twin of manifest.py's _manifest_from_dict: null for an unsupported schema, throws for a broken one.
     public static ModManifest FromJson(JObject d, string sourceRepo)
     {
         var idForMsg = (string)d["id"] ?? "?";
@@ -159,8 +150,7 @@ public class ModManifest
             if (d["artifacts"] is not JArray rawArtifacts || rawArtifacts.Count == 0)
                 throw new ModManagerException($"manifest for {idForMsg} has no artifacts.");
             var artifacts = rawArtifacts.Select(a => ModArtifact.FromJson(a, idForMsg)).ToList();
-            // Over every artifact, ignored or not, so which build a target gets never depends on which
-            // packages a reader knows.
+            // Over every artifact, so which build a target gets never depends on which packages a reader knows.
             var twice = artifacts.SelectMany(a => a.Targets)
                 .Where(ModManagerConstants.KnownTargets.Contains)
                 .GroupBy(t => t)
@@ -192,8 +182,7 @@ public class ModManifest
         }
     }
 
-    // Twin of manifest.py's parity_required: mandatory and strictly a JSON boolean, since guessing is what
-    // would let a required mod pass as optional.
+    // Twin of manifest.py's parity_required: never guessed, which could let a required mod pass as optional.
     private static bool ReadParity(JToken value, string idForMsg) =>
         value?.Type == JTokenType.Boolean
             ? (bool)value
@@ -202,8 +191,7 @@ public class ModManifest
                 + "client joining a server running this mod must have this exact "
                 + "version, false if the server shouldn't block the join over it.");
 
-    // Twin of manifest.py's mod_scenes: absent or null means every scene; otherwise a non-empty list of
-    // non-empty strings, unknown names kept so a scene added later doesn't break older readers.
+    // Twin of manifest.py's mod_scenes. Unknown names are kept, so a scene added later doesn't break readers.
     private static List<string> ReadScenes(JToken value, string idForMsg)
     {
         if (value == null || value.Type == JTokenType.Null) return null;
@@ -215,7 +203,7 @@ public class ModManifest
         return array.Select(t => (string)t).Distinct().ToList();
     }
 
-    // Lowercased, refusing anything but 64 hex characters. Same rule and message as manifest.py's _sha256_field.
+    // Twin of manifest.py's _sha256_field.
     internal static string Sha256Field(JObject d, string where)
     {
         var value = d["sha256"]?.Type == JTokenType.String ? (string)d["sha256"] : null;
@@ -225,7 +213,6 @@ public class ModManifest
     }
 }
 
-// One (id, major) row of repository.json: enough to pick a version; nothing install-critical lives here.
 public class ModSummary
 {
     public string Id { get; private set; }
@@ -256,7 +243,7 @@ public class ModSummary
         }
         if (highest == null) return null;
 
-        // One malformed entry shouldn't cost the whole index: skipped rather than guessed at.
+        // Skipped rather than guessed at, so one malformed entry doesn't cost the whole index.
         if (d["parity_required"]?.Type != JTokenType.Boolean)
         {
             TavernLogger.Warn($"index entry for {modId} in {sourceRepo} has no parity_required field, skipped.");

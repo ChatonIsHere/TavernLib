@@ -30,7 +30,6 @@ internal static class AuthPayloads
     {
         [JsonProperty(PropertyName = "status")] private string Status => "ok";
         [JsonProperty(PropertyName = "mods")] private List<ModHandshake.Entry> Mods => mods;
-        // Advisory, so kept out of `mods`, which clients feed straight into join planning.
         [JsonProperty(PropertyName = "untracked")] private List<UntrackedMod> Untracked => untracked;
     }
 

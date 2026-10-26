@@ -8,20 +8,16 @@ public static class ModDependencyResolver
 {
     private const int MaxDepth = 5;
 
-    /// <summary>Twin of resolve.py's resolve_dependencies; the verdicts must match. The root's dependency
-    /// closure by minimum-version-with-major-lock: within the required major, the highest indexed version at
-    /// or above the running minimum. Cycles, chains deeper than MaxDepth and cross-major demands throw. A
-    /// dependency with no artifact for target is pruned with everything only it needed: "M depends on
-    /// pc-only D" can only mean M's pc build needs D. The root itself is never in the result, since any
-    /// path back to it is a cycle.</summary>
+    // Twin of resolve.py's resolve_dependencies; the verdicts must match. A dependency with no build for
+    // target is pruned with everything only it needed: "M depends on pc-only D" can only mean M's pc build does.
     public static List<ModManifest> ResolveDependencies(ModManifest root, IReadOnlyList<ModSummary> index,
         Func<string, string, string, ModManifest> fetchManifest, string target)
     {
-        var summaries = index.ToDictionary(s => (s.Id, s.Major)); // FetchIndexes yields one row per (id, major)
+        var summaries = index.ToDictionary(s => (s.Id, s.Major));
         var chosen = new Dictionary<string, ModManifest>();
         var reqMin = new Dictionary<string, ModVersion>(); // the required major is reqMin[id].Major
         var reqBy = new Dictionary<string, (string Requirer, string Constraint)>();
-        var pruned = new HashSet<string>(); // no target build, so each is fetched at most once
+        var pruned = new HashSet<string>(); // so each is fetched at most once
 
         void Visit(ModManifest mod, List<string> chain)
         {
@@ -92,8 +88,7 @@ public static class ModDependencyResolver
             var manifest = fetchManifest(depId, pickVersion, summary.SourceRepo);
             if (manifest.ArtifactFor(target) == null)
             {
-                // Pruned before its constraints are recorded, so a mod we aren't installing can't raise a
-                // diamond conflict, and nothing only it needed is walked.
+                // Before its constraints are recorded, so a mod we aren't installing can't raise a conflict.
                 pruned.Add(depId);
                 TavernLogger.Warn($"{requirer} depends on '{depId}' {pickVersion}, which has no {target} build; skipped, along with anything only it needed.");
                 return;

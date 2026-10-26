@@ -10,9 +10,7 @@ using static TavernLib.Backend.Mods.ModManagerConstants;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>Verified installs into Mods/&lt;id&gt;/ and UserLibs/, and reading back what is there. Twin of
-/// tavern_shared/mods/install.py: records, files maps and the installed/untracked sets must stay identical
-/// between the two.</summary>
+// Twin of tavern_shared/mods/install.py: records, files maps and the installed/untracked sets must match.
 public static class ModInstaller
 {
     private const int ZipMaxEntries = 2000;
@@ -27,8 +25,7 @@ public static class ModInstaller
         return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
     }
 
-    // Downloads into a temp file inside workDir (same volume, so moving it out is an atomic rename), checks
-    // its sha256 and hands it to use. The temp is always removed.
+    // The temp sits in workDir, on the destination's volume, so moving it out is an atomic rename.
     private static void VerifiedDownload(NativeHttp http, string url, string sha256, string workDir, DateTime deadlineUtc, Action<string> use)
     {
         var tmp = Path.Combine(workDir, $".tavern_dl_{Guid.NewGuid():N}.part");
@@ -67,8 +64,7 @@ public static class ModInstaller
             File.Move(tmp, destPath);
         });
 
-    // Twin of install.py's _safe_extract_zip: refuses traversal, colons and symlinks, and caps entry count
-    // and extracted size.
+    // Twin of install.py's _safe_extract_zip.
     private static void SafeExtractZip(string zipPath, string destDir)
     {
         var destRoot = Path.GetFullPath(destDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -76,8 +72,7 @@ public static class ModInstaller
         if (zip.Entries.Count > ZipMaxEntries)
             throw new ModManagerException($"This mod archive has {zip.Entries.Count} entries, over the {ZipMaxEntries} limit; refusing to extract it.");
 
-        // A shipped root record is skipped (by resolved path, ignoring case): the record overwrites it after
-        // hashing, which would read as damage forever.
+        // A shipped root record is skipped: ours overwrites it after hashing, which would read as damage forever.
         var recordPaths = new[] { RecordName, DisabledRecordName }.Select(n => Path.Combine(destRoot, n)).ToArray();
 
         long written = 0;
@@ -124,8 +119,7 @@ public static class ModInstaller
         }
     }
 
-    // Twin of install.py's _hash_tree; forward-slash keys and lowercase hex are a cross-language invariant,
-    // since each side verifies the other's records.
+    // Twin of install.py's _hash_tree; each side verifies the other's records.
     private static Dictionary<string, string> HashTree(string baseDir)
     {
         var root = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -134,9 +128,7 @@ public static class ModInstaller
             Sha256File);
     }
 
-    /// <summary>Twin of install.py's verify_mod_files for one target: true if every file in its files map is
-    /// under .&lt;target&gt;/ at its hash, false (damaged) if not, null when there is nothing to check; no
-    /// evidence is not damage. Re-hashes on every call; reconcile memoizes per pass.</summary>
+    // Twin of install.py's verify_mod_files. Null (nothing to check) is not false: no evidence is not damage.
     public static bool? VerifyTarget(string gameDir, ModRecord record, string target)
     {
         var files = record.InstalledFor(target)?.Files;
@@ -149,9 +141,8 @@ public static class ModInstaller
         });
     }
 
-    // Twin of install.py's _clear_install_path, for replacing a whole mod: a folder of ours is emptied best
-    // effort, anything else moved to Mods/.displaced/ (a headless boot has nobody to ask, so only a
-    // recoverable answer will do).
+    // Twin of install.py's _clear_install_path. A folder that isn't ours is moved aside, not deleted: a
+    // headless boot has nobody to ask, so only a recoverable answer will do.
     private static void ClearInstallPath(string gameDir, string modId)
     {
         var modDir = ModPaths.ModDirPath(gameDir, modId);
@@ -159,8 +150,7 @@ public static class ModInstaller
 
         if (ModRecord.ReadOwned(gameDir, modId, out _) != null)
         {
-            // The record stays until the new one overwrites it. Anything a running game holds open is left;
-            // no longer under `installed`, it never loads.
+            // Anything a running game holds open is left; no longer under `installed`, it never loads.
             foreach (var entry in Directory.GetFileSystemEntries(modDir))
             {
                 var child = Path.GetFileName(entry);
@@ -193,10 +183,7 @@ public static class ModInstaller
             + "nothing loads from there, so remove it by hand once you've checked it.");
     }
 
-    /// <summary>Twin of install.py's install_mod: installs mod's build for target into
-    /// Mods/&lt;id&gt;/.&lt;target&gt;/, assembled in staging so a failure never leaves a partial folder,
-    /// then writes the record last. At the record's own version only that target is replaced; at any other
-    /// version, or over a record with no `installed`, the whole mod is.</summary>
+    // Twin of install.py's install_mod. Assembled in staging, so a failure never leaves a partial folder.
     public static void InstallMod(string gameDir, NativeHttp http, ModManifest mod, string target, DateTime deadlineUtc)
     {
         var artifact = mod.ArtifactFor(target)
@@ -232,7 +219,6 @@ public static class ModInstaller
             Directory.Move(staging, targetDir);
 
             installed[target] = entry;
-            // An install always leaves the mod enabled, as install.py's does.
             ModRecord.WriteFile(ModPaths.ModRecordPath(gameDir, mod.Id), ModRecord.Build(mod, installed));
             File.Delete(ModPaths.DisabledRecordPath(gameDir, mod.Id));
         }
@@ -243,9 +229,7 @@ public static class ModInstaller
         DisableShadowedLooseDlls(gameDir, mod.Id, targetDir);
     }
 
-    // Twin of install.py's _disable_shadowed_loose_dlls: a loose Mods/<name>.dll matching a DLL this install
-    // placed is an older hand install MelonLoader would load twice, so it's renamed aside, refusing to
-    // clobber an existing .disabled copy. Never fails the install over that.
+    // Twin of install.py's _disable_shadowed_loose_dlls: an older hand install MelonLoader would load twice.
     private static void DisableShadowedLooseDlls(string gameDir, string modId, string targetDir)
     {
         var names = Directory.GetFiles(targetDir)
@@ -268,10 +252,8 @@ public static class ModInstaller
         }
     }
 
-    /// <summary>Twin of install.py's collect_library_dependencies: the libraries the closure's target builds
-    /// pin, deduplicated by filename. The same filename at another sha256 is a conflict naming both pinners,
-    /// whether the other is in the closure or a build recorded anywhere in this game folder that the install
-    /// leaves in place, since UserLibs/ is shared by every target.</summary>
+    // Twin of install.py's collect_library_dependencies. Pins recorded anywhere in the folder count too,
+    // since UserLibs/ is shared by every target.
     public static List<LibraryDependency> CollectLibraryDependencies(string gameDir, IReadOnlyList<ModManifest> mods, string target)
     {
         var byFilename = new Dictionary<string, (LibraryDependency Lib, string Owner)>();
@@ -306,7 +288,6 @@ public static class ModInstaller
                 $"Library conflict on '{b.Filename}': {aOwner} pins {a.DownloadUrl} (sha {a.Sha256.Substring(0, 12)}...) but {bOwner} pins {b.DownloadUrl} (sha {b.Sha256.Substring(0, 12)}...). They can't both be installed.");
     }
 
-    // Writes UserLibs/<filename> plus its .meta.json sidecar.
     public static void InstallLibraryDependency(string gameDir, NativeHttp http, LibraryDependency lib, DateTime deadlineUtc)
     {
         var name = ModPaths.SafeBasename(lib.Filename);
@@ -319,7 +300,6 @@ public static class ModInstaller
         });
     }
 
-    // VerifyTarget for a UserLibs/ library, against its sidecar's sha256; null without a usable sidecar.
     public static bool? VerifyLibrary(string gameDir, string filename)
     {
         var name = ModPaths.SafeBasename(filename);
@@ -341,8 +321,6 @@ public static class ModInstaller
         return File.Exists(path) && string.Equals(Sha256File(path), expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    // Renames the record between manifest.json and manifest.disabled.json, so MelonLoader loads or skips
-    // the folder. False if it was already that way.
     public static bool SetEnabled(string gameDir, string modId, bool enabled)
     {
         var (on, off) = (ModPaths.ModRecordPath(gameDir, modId), ModPaths.DisabledRecordPath(gameDir, modId));
@@ -352,10 +330,8 @@ public static class ModInstaller
         return true;
     }
 
-    /// <summary>Catches an installed record up on what can change without a version bump (parity_required,
-    /// scenes), in whichever record file the mod has so a disabled mod stays disabled. Patched in place, so
-    /// fields this side doesn't model survive and key order stays install.py's. Returns whether anything
-    /// changed.</summary>
+    // Catches a record up on what can change without a version bump. Patched in place, so fields this side
+    // doesn't model survive and key order stays install.py's.
     public static bool RefreshRecordMetadata(string gameDir, ModManifest manifest)
     {
         var record = ModRecord.ReadOwned(gameDir, manifest.Id, out var path);
@@ -377,11 +353,8 @@ public static class ModInstaller
         return true;
     }
 
-    /// <summary>One pass over Mods/: twin of install.py's list_installed_mods (Installed) and
-    /// list_untracked_mods (Untracked), which must report the same sets. Dot/tilde-prefixed entries
-    /// (staging) are skipped, as MelonLoader skips them. Installed is keyed by record id, so two folders
-    /// carrying one id collapse to one entry. A folder that isn't ours is untracked on the EXISTENCE of a
-    /// record file, since MelonLoader loads it unread.</summary>
+    // Twin of install.py's list_installed_mods and list_untracked_mods. A folder that isn't ours is untracked
+    // on its record file's existence alone, since MelonLoader loads it unread.
     public static (List<InstalledModInfo> Installed, List<UntrackedMod> Untracked) ScanMods(string gameDir)
     {
         var byId = new Dictionary<string, InstalledModInfo>();
@@ -413,12 +386,11 @@ public static class ModInstaller
     }
 }
 
-/// <summary>Something MelonLoader loads that this manager didn't install: a name and shape only, so it's
-/// never resolved, updated or held against a client.</summary>
+// Something MelonLoader loads that we didn't install: never resolved, updated or held against a client.
 public class UntrackedMod
 {
-    public const string KindFile = "file";     // a loose Mods/<name>.dll; Name is the enabled filename either way
-    public const string KindFolder = "folder"; // a Mods/<name>/ folder with a foreign record
+    public const string KindFile = "file"; // Name is the enabled filename either way
+    public const string KindFolder = "folder";
 
     [JsonProperty("name")] public string Name { get; set; }
     [JsonProperty("kind")] public string Kind { get; set; }

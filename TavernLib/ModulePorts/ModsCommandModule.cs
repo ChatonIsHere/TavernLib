@@ -22,7 +22,6 @@ public static class ModsCommandModule
         var (installed, untracked) = ModInstaller.ScanMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
-        // The server build of enabled mods only: that's what this server loads, and what reconcile repairs.
         var damaged = installed
             .Where(m => m.Enabled && ModInstaller.VerifyTarget(gameDir, m.Record, TargetServer) == false)
             .Select(m => m.Record.Id)
@@ -79,8 +78,7 @@ public static class ModsCommandModule
         return $"Added '{shorthand}' ({url}) as a trusted mod source.";
     }
 
-    // "Author/Repo" from a base URL's first two path segments, for display and as the TrustedRepos key;
-    // twin of repos.py's _repo_shorthand.
+    // Twin of repos.py's _repo_shorthand.
     private static string RepoShorthand(string url)
     {
         var path = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsolutePath : url;

@@ -4,8 +4,7 @@ using System.Linq;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>Exactly MAJOR.MINOR.PATCH, with no pre-release forms so ordering never guesses. Twin of
-/// version.py's _parse_version.</summary>
+// Twin of version.py's _parse_version: no pre-release forms, so ordering never guesses.
 public readonly struct ModVersion(int major, int minor, int patch) : IComparable<ModVersion>
 {
     public int Major { get; } = major;
@@ -23,8 +22,7 @@ public readonly struct ModVersion(int major, int minor, int patch) : IComparable
         return new ModVersion(Segment(v, parts[0]), Segment(v, parts[1]), Segment(v, parts[2]));
     }
 
-    // ASCII digits only, as version.py's _SEGMENT: int.TryParse alone would also take a sign, inner
-    // whitespace and other cultures' digits.
+    // ASCII digits only: int.TryParse alone would take a sign, whitespace and other cultures' digits.
     private static int Segment(string v, string part)
     {
         if (part.Length == 0 || part.Any(c => c < '0' || c > '9'))

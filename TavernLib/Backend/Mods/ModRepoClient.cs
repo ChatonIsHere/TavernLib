@@ -8,15 +8,13 @@ using static TavernLib.Backend.Mods.ModManagerConstants;
 
 namespace TavernLib.Backend.Mods;
 
-/// <summary>Index and manifest fetches from the trusted repos: twin of repos.py's index fetch and
-/// resolve.py's manifest fetches.</summary>
+// Twin of repos.py's index fetch and resolve.py's manifest fetches.
 public class ModRepoClient(NativeHttp http, List<string> repos)
 {
     private const int SupportedIndexMajor = 2;
     private const long MaxJsonBytes = 8L * 1024 * 1024;
     private const int JsonTimeoutSeconds = 15;
 
-    // The live check `addrepo` runs before trusting a URL.
     public static void ValidateRepoIndex(string url)
     {
         using var http = new NativeHttp();
@@ -31,7 +29,7 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
         try
         {
             var body = http.GetString(url, TimeSpan.FromSeconds(JsonTimeoutSeconds), MaxJsonBytes);
-            // No date parsing: a date-like description must reach the record as the same string install.py writes.
+            // No date parsing: a date-like string must reach the record as install.py writes it.
             using var reader = new JsonTextReader(new StringReader(body)) { DateParseHandling = DateParseHandling.None };
             var obj = JObject.Load(reader);
             if (reader.Read()) throw new JsonReaderException("Additional text after the JSON object.");
@@ -43,7 +41,6 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
         }
     }
 
-    // One repo's index rows; a repo that fails is skipped with a warning.
     private List<ModSummary> FetchRepoIndex(string baseUrl)
     {
         baseUrl = NormalizeUrl(baseUrl);
@@ -75,8 +72,7 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
         }
     }
 
-    // Twin of repos.py's fetch_indexes: one row per (id, major); on a collision the default repo wins, else
-    // the highest version.
+    // Twin of repos.py's fetch_indexes.
     public List<ModSummary> FetchIndexes()
     {
         var merged = new Dictionary<(string, int), (ModSummary Summary, bool FromDefault)>();
@@ -91,8 +87,7 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
         return merged.Values.Select(v => v.Summary).ToList();
     }
 
-    // Twin of resolve.py's _fetch_manifest_leaf: the first trusted repo, preferRepo first if it's one of
-    // them, serving a usable manifest for this mod at leaf.
+    // Twin of resolve.py's _fetch_manifest_leaf. A preferRepo that isn't trusted is ignored.
     private ModManifest FetchManifestLeaf(string modId, string leaf, string preferRepo, string what, string expectedVersion)
     {
         var idx = modId.IndexOf('.');
