@@ -12,9 +12,7 @@ internal static class AuthPayloads
     }
 
 
-    /// <summary>modsHash/modsCount are null when Mods/ couldn't be read, which a
-    /// launcher treats as a server without mod sync; an empty hash would claim
-    /// "no mods".</summary>
+    // modsHash/modsCount are null when Mods/ couldn't be read: an empty hash would claim "no mods".
     public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort,
         string modsHash, int? modsCount)
     {
@@ -28,14 +26,12 @@ internal static class AuthPayloads
     }
 
 
-    public readonly struct ModsListResponse(List<ModHandshake.Entry> mods, List<ModHandshake.UntrackedEntry> untracked)
+    public readonly struct ModsListResponse(List<ModHandshake.Entry> mods, List<UntrackedMod> untracked)
     {
         [JsonProperty(PropertyName = "status")] private string Status => "ok";
         [JsonProperty(PropertyName = "mods")] private List<ModHandshake.Entry> Mods => mods;
-
-        /// <summary>Advisory, and kept out of `mods`, which clients feed straight into
-        /// join planning; a client that doesn't know the field ignores it.</summary>
-        [JsonProperty(PropertyName = "untracked")] private List<ModHandshake.UntrackedEntry> Untracked => untracked;
+        // Advisory, so kept out of `mods`, which clients feed straight into join planning.
+        [JsonProperty(PropertyName = "untracked")] private List<UntrackedMod> Untracked => untracked;
     }
 
 

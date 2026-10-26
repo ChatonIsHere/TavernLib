@@ -83,17 +83,15 @@ public static class PlayerJoinFilter
         }
     }
 
-    /// <summary>Denies a join whose TavernMods claim (on the JWT FilterInvalidTokens
-    /// reads), or lack of one, fails ModParity.CheckJoin.</summary>
+    // Denies a join whose TavernMods claim (on the JWT FilterInvalidTokens reads), or lack of one, fails
+    // ModParity.CheckJoin.
     private static async Task<bool> FilterModParity(Connection connection, Stream stream)
     {
         List<ModParity.RequiredMod> mismatches;
         string modsClaim;
         try
         {
-            // Untracked mods have no id or version to hold a client to.
-            var (_, _, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-            // Nothing any client could be refused over: don't decode the request at all.
+            var (_, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
             if (!serverMods.Any(ModParity.BlocksClaimless)) return true;
 
             using var readingStream = stream.Clone() as Stream;
@@ -106,8 +104,8 @@ public static class PlayerJoinFilter
         }
         catch (Exception e)
         {
-            // A fault on this end lets the join through, loudly: parity is defense in
-            // depth and the player can't fix it.
+            // A fault on this end lets the join through, loudly: parity is defense in depth and the player
+            // can't fix it.
             TavernLogger.Error($"Error in FilterModParity for {connection.IpAddress}; skipping parity check for this join. {e}");
             return true;
         }
