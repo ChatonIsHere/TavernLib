@@ -1,29 +1,18 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Alta.Console;
 using Alta.Console.Commands;
 using MelonLoader.Utils;
 using TavernLib.Backend.Mods;
 using TavernLib.Backend.Server.Configs;
+using static TavernLib.Backend.Mods.ModManagerConstants;
 
 namespace TavernLib.ModulePorts;
 
-/// <summary>
-/// `modmanager list` and `modmanager addrepo`. Not called "mods": the game's
-/// console already owns that module name for its own content mods.
-/// </summary>
+// Not "mods": the game's console already owns that module name for its own content mods.
 [Module("modmanager", "Community mod management console commands")]
 public static class ModsCommandModule
 {
-    private static TrustedReposConfig LoadTrustedRepos()
-    {
-        var config = new TrustedReposConfig(TavernDirectories.ModRepos);
-        config.ReadFromFile();
-        config.LastRead.Repos ??= new Dictionary<string, string>();   // "repos": null in a hand-edited file
-        return config;
-    }
-
     [ServerOnly]
     [Command("list", "Lists every community mod in Mods/ and its enabled/disabled state, including untracked ones this manager didn't install.")]
     private static string List() => ListFor(MelonEnvironment.GameRootDirectory);
@@ -33,14 +22,12 @@ public static class ModsCommandModule
         var (installed, untracked) = ModInstaller.ScanMods(gameDir);
         if (installed.Count == 0 && untracked.Count == 0) return "No community mods installed.";
 
-        // The server build of enabled mods only: that's what this server
-        // loads, and what reconcile repairs.
+        // The server build of enabled mods only: that's what this server loads, and what reconcile repairs.
         var damaged = installed
-            .Where(m => m.Enabled && ModInstaller.VerifyTarget(gameDir, m.Record, ModManagerConstants.TargetServer) == false)
+            .Where(m => m.Enabled && ModInstaller.VerifyTarget(gameDir, m.Record, TargetServer) == false)
             .Select(m => m.Record.Id)
             .ToHashSet();
 
-        // Sorted: directory order is filesystem-dependent.
         var lines = installed
             .OrderBy(m => m.Record.Id, StringComparer.OrdinalIgnoreCase)
             .Select(m => $"{m.Record.Id} {m.Record.Version} - {State(m.Enabled)} [installed: {Targets(m.Record)}]"
@@ -51,7 +38,6 @@ public static class ModsCommandModule
                 .Select(u => $"{u.Name} - {State(u.Enabled)} [untracked {u.Kind}]"));
         var listing = string.Join("\n", lines);
         if (damaged.Count == 0) return listing;
-        // Reconcile reinstalls them at boot, so say so.
         return listing + $"\n\n{damaged.Count} mod(s) no longer match the server files that were installed "
                        + "(a cut-short write, or antivirus removing a DLL). They'll be reinstalled "
                        + "automatically on the next server restart.";
@@ -59,27 +45,24 @@ public static class ModsCommandModule
 
     private static string State(bool enabled) => enabled ? "enabled" : "disabled";
 
-    // Only a mod listing server runs here; pc alone is a player's build sharing the folder.
-    private static string Targets(ModRecord record)
-    {
-        var targets = (record.Installed?.Keys ?? Enumerable.Empty<string>()).OrderBy(t => t, StringComparer.Ordinal).ToList();
-        return targets.Count == 0 ? "nothing" : string.Join(", ", targets);
-    }
+    private static string Targets(ModRecord record) =>
+        record.Installed is { Count: > 0 } installed ? string.Join(", ", installed.Keys.OrderBy(t => t, StringComparer.Ordinal)) : "nothing";
 
     [ServerOnly]
     [Command("addrepo", "Registers a new pullable mod repo by its raw-content base URL (e.g. https://raw.githubusercontent.com/user/repo/main). Validates it serves a real mod index before adding it - this is the ONLY way a repo becomes pullable; naming it in a modlist's `repos` field is not enough.")]
     private static string AddRepo(string url)
     {
-        url = ModManagerConstants.NormalizeUrl(url);
+        url = NormalizeUrl(url);
         if (!url.StartsWith("http://") && !url.StartsWith("https://"))
             return "A repository URL must start with http:// or https://.";
 
-        var config = LoadTrustedRepos();
-        var shorthand = ModManagerConstants.RepoShorthand(url);
-        if (shorthand == ModManagerConstants.RepoShorthand(ModManagerConstants.DefaultRepo) ||
-            config.LastRead.Repos.Values.Any(v => ModManagerConstants.NormalizeUrl(v) == url))
+        var config = new TrustedReposConfig(TavernDirectories.ModRepos);
+        config.ReadFromFile();
+        var repos = config.LastRead.Repos ??= new(); // "repos": null in a hand-edited file
+        var shorthand = RepoShorthand(url);
+        if (shorthand == RepoShorthand(DefaultRepo) || repos.Values.Any(v => NormalizeUrl(v) == url))
             return "That repository is already registered.";
-        if (config.LastRead.Repos.TryGetValue(shorthand, out var existingUrl) && ModManagerConstants.NormalizeUrl(existingUrl) != url)
+        if (repos.TryGetValue(shorthand, out var existingUrl))
             return $"'{shorthand}' is already registered pointing at a different URL ({existingUrl}); remove it from mod_repos.json first if you want to repoint it.";
 
         try
@@ -91,8 +74,17 @@ public static class ModsCommandModule
             return $"Couldn't add repo: {e.Message}";
         }
 
-        config.LastRead.Repos[shorthand] = url;
+        repos[shorthand] = url;
         config.WriteToFile();
         return $"Added '{shorthand}' ({url}) as a trusted mod source.";
+    }
+
+    // "Author/Repo" from a base URL's first two path segments, for display and as the TrustedRepos key;
+    // twin of repos.py's _repo_shorthand.
+    private static string RepoShorthand(string url)
+    {
+        var path = Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.AbsolutePath : url;
+        var parts = path.Trim('/').Split('/');
+        return parts.Length >= 2 ? $"{parts[0]}/{parts[1]}" : url;
     }
 }

@@ -87,17 +87,16 @@ public class Tavern : MelonPlugin
                 TavernLogger.Msg("Booting TavernLib in server mode");
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) TeenyPatches.EnsureConsoleToken();
 
-                // Only a genuinely headless server reconciles Mods/: /launcherauth means a
-                // launcher owns them. Before TavernManager, whose port-1762 listener answers
-                // from Mods/, and before the log-archive timer, whose first tick gives up for
-                // good if NLog's target isn't up 10 s later.
+                // Only a headless server reconciles Mods/ (with /launcherauth the launcher manages them). Before
+                // TavernManager, whose listener answers from Mods/, and the log-archive timer, whose first tick
+                // gives up for good if NLog's target isn't up 10 s later.
                 if (CommandLineArguments.Contains(TavernArgs.DontManageAuth))
                 {
                     if (CommandLineArguments.Contains(TavernArgs.ModsListFile))
-                        TavernLogger.Warn("mod reconcile: /modlist was passed but this server is launcher-managed (/launcherauth present); native mod reconciliation only runs for a genuinely headless server, so it was skipped. The launcher's own mod manager manages Mods/ for this server instead.");
+                        TavernLogger.Warn("mod reconcile: ignoring /modlist, since /launcherauth means the launcher manages Mods/ for this server.");
                 }
                 else if (CommandLineArguments.TryGetNextArguments(TavernArgs.ModsListFile, 1, out var modListArgs))
-                    ModReconciler.ReconcileModList(modListArgs[0], SceneIndexPatches.ForcedSceneName());
+                    ModReconciler.ReconcileModList(modListArgs[0]);
 
                 // After reconcile, so what loads is what it left on disk.
                 MelonModFolders.SyncForBoot(serverProcess: true);
