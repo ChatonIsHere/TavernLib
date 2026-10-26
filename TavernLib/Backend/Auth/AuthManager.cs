@@ -121,14 +121,12 @@ internal class AuthManager
         int? modsCount = null;
         try
         {
-            var snapshot = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-            modsHash = snapshot.Hash;
-            modsCount = snapshot.Count;
+            (modsHash, var mods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+            modsCount = mods.Count;
         }
         catch (Exception e)
         {
-            // Still answer: a pong that never arrives reads as "server offline"
-            // in every launcher's list, which is worse than one without mod data.
+            // Still answer: a missing pong reads as "server offline", worse than one without mod data.
             TavernLogger.Error($"Couldn't snapshot Mods/ for a ping; answering without mod fields. {e}");
         }
 
@@ -142,12 +140,18 @@ internal class AuthManager
         await WriteResponse(stream, response);
     }
 
-    /// <summary>Length-prefixed: the full mods list can outgrow one recv.</summary>
+    // A 4-byte big-endian length, then the JSON body: the full mods list can outgrow one recv.
     private async Task WriteModsListResponse(Stream stream)
     {
-        var (_, _, mods, untracked) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
-        var response = new AuthPayloads.ModsListResponse(mods, untracked);
-        await WriteFramedResponse(stream, response);
+        var (_, mods, untracked) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
+        var body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new AuthPayloads.ModsListResponse(mods, untracked)));
+        var header = BitConverter.GetBytes(body.Length);
+        if (BitConverter.IsLittleEndian) Array.Reverse(header);
+
+        // Size only: mods_list is unauthenticated, so logging the body would let anyone fill the log.
+        TavernLogger.Msg($"Writing framed response to joining client ({body.Length} bytes)");
+        await stream.WriteAsync(header, 0, header.Length);
+        await stream.WriteAsync(body, 0, body.Length);
     }
 
 
@@ -337,31 +341,6 @@ internal class AuthManager
         catch (Exception e)
         {
             TavernLogger.Error($"Error when sending auth OK {e}");
-            throw;
-        }
-    }
-
-    /// <summary>A 4-byte big-endian length, then the JSON body, so the client reads
-    /// exactly that many bytes rather than trusting one recv.</summary>
-    private async Task WriteFramedResponse(Stream stream, object response)
-    {
-        try
-        {
-            var serializedResponse = JsonConvert.SerializeObject(response);
-            var body = Encoding.UTF8.GetBytes(serializedResponse);
-            var header = BitConverter.GetBytes(body.Length);
-            if (BitConverter.IsLittleEndian) Array.Reverse(header);
-
-            // Size only: mods_list is unauthenticated, so logging the body would let
-            // anyone write kilobytes to the log on demand.
-            TavernLogger.Msg($"Writing framed response to joining client ({body.Length} bytes)");
-
-            await stream.WriteAsync(header, 0, header.Length);
-            await stream.WriteAsync(body, 0, body.Length);
-        }
-        catch (Exception e)
-        {
-            TavernLogger.Error($"Error when sending framed response {e}");
             throw;
         }
     }

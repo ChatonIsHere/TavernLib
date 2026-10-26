@@ -5,30 +5,19 @@ using TavernLib.Backend.Mods;
 
 namespace TavernLib.Backend.Auth;
 
-/// <summary>
-/// Exact-version mod parity for a joining client: defense in depth behind the
-/// launcher's pre-join render, for direct connects and stale or older launchers.
-/// </summary>
+/// <summary>Exact-version mod parity for a joining client: defense in depth behind the launcher's pre-join
+/// check, for direct connects and stale launchers.</summary>
 public static class ModParity
 {
-    /// <summary>Wire format, not a message: JoinRejectionRecorder matches on it to
-    /// recognise a recoverable rejection.</summary>
+    // Wire format: JoinRejectionRecorder matches on it to recognise a recoverable rejection.
     public const string MismatchReasonPrefix = "Mod mismatch: ";
 
-    /// <summary>Parity-required and built for pc: what a join carrying a
-    /// claim must match.</summary>
-    public static bool IsEnforced(ModHandshake.Entry mod) =>
-        mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetPc);
-
-    /// <summary>Parity-required and built for any client target: what refuses a
-    /// join with no readable claim. A superset of IsEnforced, so also the join
-    /// gate's early exit.</summary>
+    // Parity-required and built for any client target. A superset of what a claim is checked against, so
+    // also the join gate's early exit.
     public static bool BlocksClaimless(ModHandshake.Entry mod) =>
-        mod.ParityRequired && (mod.Targets.Contains(ModManagerConstants.TargetPc)
-                               || mod.Targets.Contains(ModManagerConstants.TargetQuest));
+        mod.ParityRequired && (mod.Targets.Contains(ModManagerConstants.TargetPc) || mod.Targets.Contains(ModManagerConstants.TargetQuest));
 
-    /// <summary>The rejection payload's {id, version, source_repo} shape;
-    /// source_repo is a hint, never authority.</summary>
+    // source_repo is a hint, never authority.
     public class RequiredMod
     {
         [JsonProperty("id")] public string Id;
@@ -36,25 +25,21 @@ public static class ModParity
         [JsonProperty("source_repo")] public string SourceRepo;
     }
 
-    private static RequiredMod Required(ModHandshake.Entry mod) =>
-        new() { Id = mod.Id, Version = mod.Version, SourceRepo = mod.SourceRepo };
-
-    /// <summary>
-    /// The join verdict for a TavernMods claim: the server mods it fails on,
-    /// empty to admit. No claim, or one that isn't a JSON object of id to
-    /// version (the Quest app, an in-game board, a direct connect), fails on
-    /// every mod that <see cref="BlocksClaimless"/>; a readable one goes
-    /// through <see cref="ValidateClient"/>.
-    /// </summary>
+    /// <summary>The server mods a TavernMods claim fails on; empty admits. No readable claim (the Quest app,
+    /// an in-game board, a direct connect) fails every mod that <see cref="BlocksClaimless"/>. A readable one
+    /// must hold the exact version of every parity-required mod built for pc; one with no recorded version
+    /// always mismatches, as in the launcher's _verify_mod_parity, so "no version" can't match "no mod".</summary>
     public static List<RequiredMod> CheckJoin(List<ModHandshake.Entry> serverMods, string claim)
     {
         var clientMods = ReadClaim(claim);
-        return clientMods == null
-            ? serverMods.Where(BlocksClaimless).Select(Required).ToList()
-            : ValidateClient(serverMods, clientMods);
+        bool Fails(ModHandshake.Entry mod) => clientMods == null
+            ? BlocksClaimless(mod)
+            : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetPc)
+              && (string.IsNullOrEmpty(mod.Version) || !clientMods.TryGetValue(mod.Id, out var have) || have != mod.Version);
+        return serverMods.Where(Fails).Select(m => new RequiredMod { Id = m.Id, Version = m.Version, SourceRepo = m.SourceRepo }).ToList();
     }
 
-    /// <summary>The claim as id -> version, or null when it's missing or unreadable.</summary>
+    // The claim as id -> version, or null when it's missing or isn't a JSON object of strings.
     public static Dictionary<string, string> ReadClaim(string claim)
     {
         if (string.IsNullOrEmpty(claim)) return null;
@@ -68,23 +53,5 @@ public static class ModParity
         {
             return null;
         }
-    }
-
-    /// <summary>
-    /// The enforced server mods the client's claim (id -> version) lacks or holds
-    /// at another version; empty means parity holds. An enforced mod with no
-    /// recorded version always mismatches, as in the launcher's
-    /// _verify_mod_parity, so "no version" can't match "no mod".
-    /// </summary>
-    public static List<RequiredMod> ValidateClient(List<ModHandshake.Entry> serverMods, Dictionary<string, string> clientMods)
-    {
-        var mismatches = new List<RequiredMod>();
-        foreach (var mod in serverMods.Where(IsEnforced))
-        {
-            clientMods.TryGetValue(mod.Id, out var have);
-            if (string.IsNullOrEmpty(mod.Version) || have != mod.Version)
-                mismatches.Add(Required(mod));
-        }
-        return mismatches;
     }
 }

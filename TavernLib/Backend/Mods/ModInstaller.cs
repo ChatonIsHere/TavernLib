@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace TavernLib.Backend.Mods;
@@ -547,24 +548,16 @@ public static class ModInstaller
     }
 }
 
-/// <summary>Something MelonLoader loads that this manager didn't install. Only a
-/// name, a shape and a state are known, so it's never resolved or updated.</summary>
+/// <summary>Something MelonLoader loads that this manager didn't install: a name and shape only, so it's
+/// never resolved, updated or held against a client.</summary>
 public class UntrackedMod
 {
-    /// <summary>A loose Mods/&lt;name&gt;.dll; Name is the enabled filename either way.</summary>
-    public const string KindFile = "file";
+    public const string KindFile = "file";     // a loose Mods/<name>.dll; Name is the enabled filename either way
+    public const string KindFolder = "folder"; // a Mods/<name>/ folder with a foreign record
 
-    /// <summary>A Mods/&lt;name&gt;/ folder with a foreign manifest. Name is the
-    /// folder name.</summary>
-    public const string KindFolder = "folder";
-
-    public string Name { get; set; }
-
-    /// <summary><see cref="KindFile"/> or <see cref="KindFolder"/>, as install.py
-    /// spells them.</summary>
-    public string Kind { get; set; }
-
-    public bool Enabled { get; set; }
+    [JsonProperty("name")] public string Name { get; set; }
+    [JsonProperty("kind")] public string Kind { get; set; }
+    [JsonIgnore] public bool Enabled { get; set; }
 }
 
 public class InstalledModInfo
