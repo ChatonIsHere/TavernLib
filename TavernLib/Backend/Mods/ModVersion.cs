@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace TavernLib.Backend.Mods;
 
-// Twin of version.py's _parse_version: no pre-release forms, so ordering never guesses.
+// Twin of base.py's _parse_version: no pre-release forms, so ordering never guesses.
 public readonly struct ModVersion(int major, int minor, int patch) : IComparable<ModVersion>
 {
     public int Major { get; } = major;

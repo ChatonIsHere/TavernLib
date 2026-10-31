@@ -10,6 +10,7 @@ public static class ModDependencyResolver
 
     // Twin of resolve.py's resolve_dependencies; the verdicts must match. A dependency with no build for
     // target is pruned with everything only it needed: "M depends on Windows-only D" can only mean M's Windows build does.
+    // A dependency no source lists any more that a source has replaced resolves to its replacement.
     public static List<ModManifest> ResolveDependencies(ModManifest root, IReadOnlyList<ModSummary> index,
         Func<string, string, string, ModManifest> fetchManifest, string target)
     {
@@ -26,15 +27,22 @@ public static class ModDependencyResolver
                     $"Dependency chain too deep (> {MaxDepth}): {string.Join(" -> ", chain)}. This is almost certainly a mistake in the mods' dependency data.");
 
             foreach (var kv in mod.Dependencies.OrderBy(kv => kv.Key, StringComparer.Ordinal))
-            {
-                if (chain.Contains(kv.Key))
-                    throw new ModManagerException($"Circular dependency: {string.Join(" -> ", chain.Append(kv.Key))}.");
                 AddRequirement(kv.Key, kv.Value, mod.Name, chain);
-            }
         }
 
         void AddRequirement(string depId, string minV, string requirer, List<string> chain)
         {
+            if (ModIndex.ReplacementOfUnlisted(index, depId) is { } rep)
+            {
+                // Any version of the replacement will do; its newest major is taken.
+                var newest = index.Where(s => s.Id == rep.By).Max(s => s.Major);
+                TavernLogger.Warn($"{requirer} depends on '{depId}', which has been replaced by '{rep.By}'; using that instead.");
+                depId = rep.By;
+                minV = $"{newest}.0.0";
+            }
+            // After the swap, which can lead back up the chain.
+            if (chain.Contains(depId))
+                throw new ModManagerException($"Circular dependency: {string.Join(" -> ", chain.Append(depId))}.");
             if (pruned.Contains(depId))
             {
                 // Reported again so this requirer isn't invisible, but not re-fetched or re-walked.

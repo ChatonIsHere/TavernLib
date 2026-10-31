@@ -37,6 +37,9 @@ public static class ModPaths
         // "C:evil.dll" is another directory and "mod.dll:x" an NTFS stream; GetFileName misses both.
         if (name.Contains(":"))
             throw new ModManagerException($"Filename '{name}' must not contain a colon.");
+        // Windows drops a trailing dot or space, so "a.b." would open "a.b".
+        if (name != name.TrimEnd('.', ' '))
+            throw new ModManagerException($"Filename '{name}' must not end in a dot or space.");
         if (Path.GetFileName(name) != name)
             throw new ModManagerException($"Filename '{name}' must be a bare basename.");
         return name;

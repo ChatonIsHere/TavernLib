@@ -19,7 +19,7 @@ public static class JoinRejectionRecorder
         try
         {
             var error = joinMessage.Error;
-            if (error?.StartsWith(ModParity.MismatchReasonPrefix) != true) return;
+            if (error?.StartsWith(ModParity.MismatchReasonPrefix, StringComparison.Ordinal) != true) return;
 
             var missing = JsonConvert.DeserializeObject<List<ModParity.RequiredMod>>(error.Substring(ModParity.MismatchReasonPrefix.Length));
             if (missing == null || missing.Count == 0) return;
@@ -40,8 +40,8 @@ public static class JoinRejectionRecorder
             var path = TavernDirectories.LastRejection;
             Directory.CreateDirectory(TavernDirectories.ModdingTavern);
             File.WriteAllText(path + ".tmp", JsonConvert.SerializeObject(payload, Formatting.Indented));
-            File.Delete(path);
-            File.Move(path + ".tmp", path);
+            if (File.Exists(path)) File.Replace(path + ".tmp", path, null);
+            else File.Move(path + ".tmp", path);
 
             TavernLogger.Warn($"Join rejected for a mod mismatch; wrote {path} for the launcher to recover.");
         }
