@@ -165,8 +165,9 @@ public static class ModInstaller
     }
 
     // Twin of install.py's _place_target: what an install replaces is moved aside, not deleted, so a folder a
-    // running game or server holds open refuses the install before anything is lost.
-    private static void MoveAside(string modDir, string aside, ICollection<string> keep, string modId)
+    // running game or server holds open refuses the install before anything is lost. Only the dot target
+    // folders are replaced, so data a mod keeps beside them survives; with legacy, every other entry goes too.
+    private static void MoveAside(string modDir, string aside, ICollection<string> keep, bool legacy, string modId)
     {
         if (Directory.Exists(aside)) Directory.Delete(aside, recursive: true);
         Directory.CreateDirectory(aside);
@@ -174,7 +175,7 @@ public static class ModInstaller
         try
         {
             foreach (var name in Directory.GetFileSystemEntries(modDir).Select(Path.GetFileName)
-                         .Where(n => !keep.Contains(n)).OrderBy(n => n, StringComparer.Ordinal))
+                         .Where(n => !keep.Contains(n) && (legacy || n.StartsWith("."))).OrderBy(n => n, StringComparer.Ordinal))
             {
                 Move(Path.Combine(modDir, name), Path.Combine(aside, name));
                 moved.Add(name);
@@ -221,7 +222,8 @@ public static class ModInstaller
                     installed[prop.Name] = prop.Value;
             Directory.CreateDirectory(modDir);
             var aside = Path.Combine(ModPaths.ModsBase(gameDir), $".{mod.Id}.old");
-            MoveAside(modDir, aside, [RecordName, DisabledRecordName, .. installed.Keys.Select(t => "." + t)], mod.Id);
+            MoveAside(modDir, aside, [RecordName, DisabledRecordName, .. installed.Keys.Select(t => "." + t)],
+                existing != null && existing["installed"] is not JObject, mod.Id);
             Directory.Move(staging, targetDir);
             try { Directory.Delete(aside, recursive: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
