@@ -17,7 +17,7 @@ public static class ModReconciler
 
     public static void ReconcileModList(string modsListPathArg)
     {
-        TavernLogger.Msg("mod reconcile: running before Mods/ is scanned (OnEarlyInitializeMelon).");
+        TavernLogger.Msg("mod reconcile: running before mods load (OnEarlyInitializeMelon).");
         try
         {
             // The manifest scene name for the arguments SceneIndexPatches reads.
@@ -37,7 +37,7 @@ public static class ModReconciler
             modsList.ReadFromFile();
             var trustedRepos = new TrustedReposConfig(TavernDirectories.ModRepos);
             trustedRepos.ReadFromFile();
-            Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead, scene);
+            Reconcile(MelonEnvironment.GameRootDirectory, modsList.LastRead, trustedRepos.LastRead.EffectiveRepoUrls(), scene);
         }
         catch (Exception e)
         {
@@ -45,16 +45,16 @@ public static class ModReconciler
         }
     }
 
-    public static void Reconcile(string gameDir, ModsList modsList, TrustedRepos trustedRepos, string scene)
+    public static void Reconcile(string gameDir, ModsList modsList, List<string> repos, string scene)
     {
         using var http = new NativeHttp();
-        new Pass(gameDir, http, trustedRepos.EffectiveRepoUrls(), scene).Run(modsList);
+        new Pass(gameDir, http, repos, scene).Run(modsList);
     }
 
     private sealed class Pass(string gameDir, NativeHttp http, List<string> repos, string scene)
     {
         private readonly DateTime _deadline = DateTime.UtcNow.AddSeconds(MaxSeconds);
-        private readonly ModRepoClient _client = new(http, repos);
+        private readonly ModRepoClient _client = new(http, repos, DateTime.UtcNow.AddSeconds(MaxSeconds));
         // Listed but left out, with why, for the disable pass to report.
         private readonly Dictionary<string, string> _skipped = new();
         private Dictionary<string, InstalledModInfo> _installed;
@@ -88,7 +88,7 @@ public static class ModReconciler
         {
             var installed = ModInstaller.ScanMods(gameDir).Installed;
             _installed = installed.ToDictionary(m => m.Record.Id);
-            var entries = (modsList.Mods ?? []).Select(ModsList.ParseEntry).Select(Replace).ToList();
+            var entries = (modsList.Mods ?? []).Select(ModsList.ParseEntry).ToList();
             var keepIds = new HashSet<string>();
 
             for (var i = 0; i < entries.Count; i++)
@@ -139,7 +139,7 @@ public static class ModReconciler
         }
 
         // A modlist entry for a mod its source has replaced means the replacement, at its latest, as the
-        // launcher's modlist import reads it. The old mod then drops out of the list and is disabled below.
+        // launcher's modlist import reads it. Once the replacement is in, the old mod is disabled below.
         // Needs the index; when it can't be fetched the entry stands as written.
         private (string Id, string PinnedVersion) Replace((string Id, string PinnedVersion) entry)
         {
@@ -191,8 +191,10 @@ public static class ModReconciler
             try
             {
                 // Root last, so a failure partway leaves new dependencies beside the old root, which still loads.
-                foreach (var m in deps) ModInstaller.InstallMod(gameDir, http, m, Target, _deadline);
-                foreach (var lib in libs) ModInstaller.InstallLibraryDependency(gameDir, http, lib, _deadline);
+                // What is already here intact is left alone, as install.py's install_mod_set does.
+                foreach (var m in deps.Where(d => !Intact(d))) ModInstaller.InstallMod(gameDir, http, m, Target, _deadline);
+                foreach (var lib in libs.Where(l => ModInstaller.VerifyLibrary(gameDir, l.Filename, l.Sha256) != true))
+                    ModInstaller.InstallLibraryDependency(gameDir, http, lib, _deadline);
                 ModInstaller.InstallMod(gameDir, http, target, Target, _deadline);
             }
             finally
@@ -208,25 +210,29 @@ public static class ModReconciler
             }
         }
 
-        // The repo the index says hosts the mod, as install.py prefers; before the index is fetched, the installed copy's.
-        private string PreferredRepo((string Id, string PinnedVersion) entry, InstalledModInfo existing)
+        private bool Intact(ModManifest m) =>
+            RunsHere(m.Id) && _installed[m.Id].Record.Version == m.Version
+            && Memo(_modVerified, m.Id, () => ModInstaller.VerifyTarget(gameDir, _installed[m.Id].Record, Target)) != false;
+
+        // The repo the index says hosts the mod, as resolve.py's _index_source prefers.
+        private string PreferredRepo((string Id, string PinnedVersion) entry)
         {
-            if (existing != null && _index == null) return existing.Record.SourceRepo;
             int? major = entry.PinnedVersion != null && ModVersion.TryParse(entry.PinnedVersion, out var pinned) ? pinned.Major : null;
             return Index.Where(s => s.Id == entry.Id && (major == null || s.Major == major))
                 .OrderByDescending(s => s.Highest)
                 .FirstOrDefault()?.SourceRepo;
         }
 
-        // Returns every id the entry accounts for. On any failure the on-disk closure is kept, so an outage
-        // degrades to "keep what's installed".
-        private HashSet<string> ReconcileOne((string Id, string PinnedVersion) entry)
+        // Returns every id the entry accounts for. On any failure the on-disk closure is kept, the listed
+        // mod's too when it was replaced, so an outage degrades to "keep what's installed".
+        private HashSet<string> ReconcileOne((string Id, string PinnedVersion) listed)
         {
             var keep = new HashSet<string>();
+            var entry = Replace(listed);
             _installed.TryGetValue(entry.Id, out var existing);
             try
             {
-                var preferRepo = PreferredRepo(entry, existing);
+                var preferRepo = PreferredRepo(entry);
                 var target = entry.PinnedVersion != null
                     ? _client.FetchManifest(entry.Id, entry.PinnedVersion, preferRepo)
                     : _client.FetchLatest(entry.Id, preferRepo);
@@ -281,6 +287,8 @@ public static class ModReconciler
                                          + $"(parity_required now {target.ParityRequired}, scenes now "
                                          + (target.Scenes == null ? "all" : string.Join(", ", target.Scenes)) + ").");
                     AddInstalledClosure(entry.Id, keep);
+                    // A dependency the record names by a replaced id resolved to its replacement.
+                    if (deps != null) keep.UnionWith(deps.Select(d => d.Id));
                     return keep;
                 }
 
@@ -301,11 +309,13 @@ public static class ModReconciler
                     _skipped[entry.Id] = SceneReason;
                     return keep;
                 }
+                // From _installed, not existing: a partial install may have just written the record.
                 if (RunsHere(entry.Id))
-                    TavernLogger.Warn($"mod reconcile: couldn't resolve/update '{entry.Id}' ({e.Message}); keeping the installed {existing.Record.Version}.");
+                    TavernLogger.Warn($"mod reconcile: couldn't resolve/update '{entry.Id}' ({e.Message}); keeping the installed {_installed[entry.Id].Record.Version}.");
                 else
                     TavernLogger.Warn($"mod reconcile: couldn't resolve/install '{entry.Id}' ({e.Message}); the server will boot without it.");
                 AddInstalledClosure(entry.Id, keep);
+                AddInstalledClosure(listed.Id, keep);
                 return keep;
             }
         }

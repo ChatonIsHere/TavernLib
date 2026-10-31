@@ -21,7 +21,7 @@ public static class ModHandshake
         [JsonProperty("scenes", NullValueHandling = NullValueHandling.Ignore)] public List<string> Scenes { get; set; }
     }
 
-    // Runs on every ping, mods_list and join; Mods/ only changes in boot reconcile, before the listener starts.
+    // Runs on every ping, mods_list and join, so a change on disk shows within this.
     private const int CacheTtlSeconds = 5;
     private static readonly object CacheLock = new();
     private static (string GameDir, DateTime AtUtc, (string, List<Entry>, List<UntrackedMod>) Value) _cache;

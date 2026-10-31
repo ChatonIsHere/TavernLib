@@ -91,6 +91,9 @@ public static class ModInstaller
                 throw new ModManagerException($"Unsafe archive entry '{name}': symlink.");
 
             var rel = name.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+            // GetFullPath drops these, so the two installers could hash different trees.
+            if (rel.Split(Path.DirectorySeparatorChar).Any(p => p is not ("" or "." or "..") && p != p.TrimEnd('.', ' ')))
+                throw new ModManagerException($"Unsafe archive entry '{name}': a name ends in a dot or space.");
             var target = Path.GetFullPath(Path.Combine(destRoot, rel));
             if (target != destRoot && !target.StartsWith(destRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 throw new ModManagerException($"Unsafe archive entry '{name}': escapes the mod folder.");
@@ -141,38 +144,16 @@ public static class ModInstaller
         });
     }
 
-    // Twin of install.py's _clear_install_path. A folder that isn't ours is moved aside, not deleted: a
+    // Twin of install.py's _displace_foreign. A folder that isn't ours is moved aside, not deleted: a
     // headless boot has nobody to ask, so only a recoverable answer will do.
-    private static void ClearInstallPath(string gameDir, string modId)
+    private static void DisplaceForeign(string gameDir, string modId)
     {
         var modDir = ModPaths.ModDirPath(gameDir, modId);
         if (!Directory.Exists(modDir)) return;
 
-        if (ModRecord.ReadOwned(gameDir, modId, out _) != null)
-        {
-            // Anything a running game holds open is left; no longer under `installed`, it never loads.
-            foreach (var entry in Directory.GetFileSystemEntries(modDir))
-            {
-                var child = Path.GetFileName(entry);
-                if (string.Equals(child, RecordName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(child, DisabledRecordName, StringComparison.OrdinalIgnoreCase)) continue;
-                try
-                {
-                    if (Directory.Exists(entry)) Directory.Delete(entry, recursive: true);
-                    else File.Delete(entry);
-                }
-                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                {
-                    TavernLogger.Warn($"mod install: couldn't remove Mods/{modId}/{child} ({e.Message}); left it behind.");
-                }
-            }
-            return;
-        }
-
         var baseDir = Path.Combine(ModPaths.ModsBase(gameDir), ".displaced");
         Directory.CreateDirectory(baseDir);
         var dest = Path.Combine(baseDir, modId);
-        // A counter, not a timestamp: displacing the same name twice keeps both, at a predictable name.
         for (var n = 2; Directory.Exists(dest) || File.Exists(dest); n++)
             dest = Path.Combine(baseDir, $"{modId}.{n}");
         Directory.Move(modDir, dest);
@@ -181,6 +162,35 @@ public static class ModInstaller
             $"mod install: Mods/{modId}/ already existed and wasn't installed by this manager. "
             + $"Moved it to Mods/.displaced/{Path.GetFileName(dest)}/ rather than deleting it; "
             + "nothing loads from there, so remove it by hand once you've checked it.");
+    }
+
+    // Twin of install.py's _place_target: what an install replaces is moved aside, not deleted, so a folder a
+    // running game or server holds open refuses the install before anything is lost.
+    private static void MoveAside(string modDir, string aside, ICollection<string> keep, string modId)
+    {
+        if (Directory.Exists(aside)) Directory.Delete(aside, recursive: true);
+        Directory.CreateDirectory(aside);
+        var moved = new List<string>();
+        try
+        {
+            foreach (var name in Directory.GetFileSystemEntries(modDir).Select(Path.GetFileName)
+                         .Where(n => !keep.Contains(n)).OrderBy(n => n, StringComparer.Ordinal))
+            {
+                Move(Path.Combine(modDir, name), Path.Combine(aside, name));
+                moved.Add(name);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            foreach (var name in moved) Move(Path.Combine(aside, name), Path.Combine(modDir, name));
+            throw new ModManagerException($"Mods/{modId}/ is in use ({e.Message}). Close the game or server running from this folder, then try again.");
+        }
+
+        static void Move(string from, string to)
+        {
+            if (Directory.Exists(from)) Directory.Move(from, to);
+            else File.Move(from, to);
+        }
     }
 
     // Twin of install.py's install_mod. Assembled in staging, so a failure never leaves a partial folder.
@@ -203,20 +213,18 @@ public static class ModInstaller
             var entry = ModRecord.InstalledEntry(artifact, HashTree(staging));
 
             var existing = ModRecord.ReadOwned(gameDir, mod.Id, out _);
+            if (existing == null) DisplaceForeign(gameDir, mod.Id);
             var installed = new Dictionary<string, JToken>();
+            // Other targets' entries are kept as written, whichever installer wrote them.
             if (existing?["installed"] is JObject kept && (string)existing["version"] == mod.Version)
-            {
-                // Other targets' entries are kept as written, whichever installer wrote them.
                 foreach (var prop in kept.Properties().Where(p => p.Name != target))
                     installed[prop.Name] = prop.Value;
-                if (Directory.Exists(targetDir)) Directory.Delete(targetDir, recursive: true);
-            }
-            else
-            {
-                ClearInstallPath(gameDir, mod.Id);
-            }
             Directory.CreateDirectory(modDir);
+            var aside = Path.Combine(ModPaths.ModsBase(gameDir), $".{mod.Id}.old");
+            MoveAside(modDir, aside, [RecordName, DisabledRecordName, .. installed.Keys.Select(t => "." + t)], mod.Id);
             Directory.Move(staging, targetDir);
+            try { Directory.Delete(aside, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
 
             installed[target] = entry;
             ModRecord.WriteFile(ModPaths.ModRecordPath(gameDir, mod.Id), ModRecord.Build(mod, installed));
@@ -246,14 +254,22 @@ public static class ModInstaller
                     + $"disabled ('{name + DisabledDllSuffix}' already exists; remove or rename it first.); MelonLoader may load it twice until it's removed.");
                 continue;
             }
-            File.Move(loose, loose + DisabledDllSuffix);
+            try
+            {
+                File.Move(loose, loose + DisabledDllSuffix);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                TavernLogger.Warn($"mod install: Mods/{name} looks like a loose copy of {modId}, but couldn't be disabled ({e.Message}); MelonLoader may load it twice until it's removed.");
+                continue;
+            }
             TavernLogger.Warn($"mod install: Mods/{name} was a loose copy of a DLL that {modId} just installed; "
                 + $"disabled it so MelonLoader doesn't load it twice. Rename it back to {name} to restore it.");
         }
     }
 
-    // Twin of install.py's collect_library_dependencies. Pins recorded anywhere in the folder count too,
-    // since UserLibs/ is shared by every target.
+    // Twin of install.py's collect_library_dependencies and _check_folder_libraries: pins recorded anywhere in
+    // the folder count too, since UserLibs/ is shared by every target.
     public static List<LibraryDependency> CollectLibraryDependencies(string gameDir, IReadOnlyList<ModManifest> mods, string target)
     {
         var byFilename = new Dictionary<string, (LibraryDependency Lib, string Owner)>();
@@ -300,22 +316,14 @@ public static class ModInstaller
         });
     }
 
-    public static bool? VerifyLibrary(string gameDir, string filename)
+    // With wantSha256, also false for a sidecar pinning another build, as install.py's _library_present.
+    public static bool? VerifyLibrary(string gameDir, string filename, string wantSha256 = null)
     {
         var name = ModPaths.SafeBasename(filename);
-        var sidecarPath = ModPaths.LibrarySidecarPath(gameDir, name);
-        if (!File.Exists(sidecarPath)) return null;
-
-        string expected;
-        try
-        {
-            expected = JObject.Parse(File.ReadAllText(sidecarPath))["sha256"]?.ToString();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-        if (string.IsNullOrEmpty(expected)) return null;
+        var sidecar = ModRecord.ParseObject(ModPaths.LibrarySidecarPath(gameDir, name));
+        var expected = sidecar?["sha256"]?.Type == JTokenType.String ? (string)sidecar["sha256"] : null;
+        if (string.IsNullOrEmpty(expected)) return wantSha256 == null ? null : false;
+        if (wantSha256 != null && !string.Equals(expected, wantSha256, StringComparison.OrdinalIgnoreCase)) return false;
 
         var path = Path.Combine(ModPaths.UserLibsDir(gameDir), name);
         return File.Exists(path) && string.Equals(Sha256File(path), expected, StringComparison.OrdinalIgnoreCase);
@@ -353,8 +361,8 @@ public static class ModInstaller
         return true;
     }
 
-    // Twin of install.py's list_installed_mods and list_untracked_mods. A folder that isn't ours is untracked
-    // on its record file's existence alone, since MelonLoader loads it unread.
+    // Twin of install.py's _scan_mods. A folder that isn't ours is untracked on its record file's existence
+    // alone, since MelonLoader loads it unread.
     public static (List<InstalledModInfo> Installed, List<UntrackedMod> Untracked) ScanMods(string gameDir)
     {
         var byId = new Dictionary<string, InstalledModInfo>();
