@@ -8,6 +8,47 @@ using static TavernLib.Backend.Mods.ModManagerConstants;
 
 namespace TavernLib.Backend.Mods;
 
+// One entry of a source's `replaced`: OldId is retired in favour of By. Twin of repos.py's Replacement.
+public sealed class ModReplacement(string oldId, string by, string note, string sourceRepo)
+{
+    public string OldId { get; } = oldId;
+    public string By { get; } = by;
+    public string Note { get; } = note;
+    public string SourceRepo { get; } = sourceRepo;
+}
+
+// FetchIndexes' summaries, with every source's replacements. Twin of repos.py's ModIndex.
+public class ModIndex : List<ModSummary>
+{
+    public List<ModReplacement> Replaced { get; } = [];
+
+    public ModIndex() { }
+
+    public ModIndex(IEnumerable<ModSummary> summaries, IEnumerable<ModReplacement> replaced) : base(summaries)
+    {
+        Replaced.AddRange(replaced);
+    }
+
+    // Twin of repos.py's replacement_for. With a source, only that source's counts: a source can retire only
+    // what it served. Without, the default source's wins, then the first source's.
+    public static ModReplacement ReplacementFor(IReadOnlyList<ModSummary> index, string modId, string sourceRepo = null)
+    {
+        var reps = (index as ModIndex)?.Replaced.Where(r => r.OldId == modId).ToList() ?? [];
+        if (sourceRepo != null)
+            return reps.FirstOrDefault(r => NormalizeUrl(r.SourceRepo) == NormalizeUrl(sourceRepo));
+        return reps.FirstOrDefault(r => IsDefaultRepo(r.SourceRepo)) ?? reps.FirstOrDefault();
+    }
+
+    // Twin of repos.py's replacement_of_unlisted: for an id named without a source (a dependency, a modlist
+    // entry), only when no source lists the id and one lists its replacement.
+    public static ModReplacement ReplacementOfUnlisted(IReadOnlyList<ModSummary> index, string modId)
+    {
+        if (index.Any(s => s.Id == modId)) return null;
+        var rep = ReplacementFor(index, modId);
+        return rep != null && index.Any(s => s.Id == rep.By) ? rep : null;
+    }
+}
+
 // Twin of repos.py's index fetch and resolve.py's manifest fetches.
 public class ModRepoClient(NativeHttp http, List<string> repos)
 {
@@ -41,7 +82,7 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
         }
     }
 
-    private List<ModSummary> FetchRepoIndex(string baseUrl)
+    private (List<ModSummary> Rows, List<ModReplacement> Replaced) FetchRepoIndex(string baseUrl)
     {
         baseUrl = NormalizeUrl(baseUrl);
         JObject index;
@@ -63,28 +104,42 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
             foreach (var major in (mod.Value as JObject)?.Properties() ?? [])
                 if (major.Value is JObject entry && ModSummary.FromJson(entry, mod.Name, baseUrl) is { } summary)
                     rows.Add(summary);
-        return rows;
+        return (rows, ReplacementsFrom(index, baseUrl));
 
-        List<ModSummary> Skip(string reason)
+        (List<ModSummary>, List<ModReplacement>) Skip(string reason)
         {
             TavernLogger.Warn($"skipping repo {baseUrl}: {reason}");
-            return [];
+            return ([], []);
         }
     }
 
+    // Twin of repos.py's _replacements_from: entries that aren't an object with a string "by" naming another id are skipped.
+    public static List<ModReplacement> ReplacementsFrom(JObject index, string baseUrl)
+    {
+        var replaced = new List<ModReplacement>();
+        foreach (var p in (index["replaced"] as JObject)?.Properties() ?? [])
+            if (p.Value is JObject entry && entry["by"]?.Type == JTokenType.String && (string)entry["by"] != p.Name)
+                replaced.Add(new ModReplacement(p.Name, (string)entry["by"],
+                    entry["note"]?.Type == JTokenType.String ? (string)entry["note"] : "", baseUrl));
+        return replaced;
+    }
+
     // Twin of repos.py's fetch_indexes.
-    public List<ModSummary> FetchIndexes()
+    public ModIndex FetchIndexes()
     {
         var merged = new Dictionary<(string, int), (ModSummary Summary, bool FromDefault)>();
+        var replaced = new List<ModReplacement>();
         foreach (var baseUrl in repos)
         {
             var fromDefault = IsDefaultRepo(baseUrl);
-            foreach (var s in FetchRepoIndex(baseUrl))
+            var (rows, reps) = FetchRepoIndex(baseUrl);
+            replaced.AddRange(reps);
+            foreach (var s in rows)
                 if (!merged.TryGetValue((s.Id, s.Major), out var cur) || (fromDefault && !cur.FromDefault)
                     || (fromDefault == cur.FromDefault && s.Highest > cur.Summary.Highest))
                     merged[(s.Id, s.Major)] = (s, fromDefault);
         }
-        return merged.Values.Select(v => v.Summary).ToList();
+        return new ModIndex(merged.Values.Select(v => v.Summary), replaced);
     }
 
     // Twin of resolve.py's _fetch_manifest_leaf. A preferRepo that isn't trusted is ignored.
