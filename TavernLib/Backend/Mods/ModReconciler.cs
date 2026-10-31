@@ -58,17 +58,17 @@ public static class ModReconciler
         // Listed but left out, with why, for the disable pass to report.
         private readonly Dictionary<string, string> _skipped = new();
         private Dictionary<string, InstalledModInfo> _installed;
-        private List<ModSummary> _index;
+        private ModIndex _index;
         // Per-pass verdicts, so a dependency or library shared by several listed mods is hashed once.
         private readonly Dictionary<string, bool?> _modVerified = new();
         private readonly Dictionary<string, bool?> _libVerified = new();
 
-        // Fetched on first use: a boot with nothing to install never needs it.
-        private List<ModSummary> Index => _index ??= FetchIndex();
+        // Fetched on first use: an empty modlist never needs it.
+        private ModIndex Index => _index ??= FetchIndex();
 
         private string SceneReason => $"it doesn't work in the {scene} scene this server runs";
 
-        private List<ModSummary> FetchIndex()
+        private ModIndex FetchIndex()
         {
             try
             {
@@ -88,7 +88,7 @@ public static class ModReconciler
         {
             var installed = ModInstaller.ScanMods(gameDir).Installed;
             _installed = installed.ToDictionary(m => m.Record.Id);
-            var entries = (modsList.Mods ?? []).Select(ModsList.ParseEntry).ToList();
+            var entries = (modsList.Mods ?? []).Select(ModsList.ParseEntry).Select(Replace).ToList();
             var keepIds = new HashSet<string>();
 
             for (var i = 0; i < entries.Count; i++)
@@ -136,6 +136,17 @@ public static class ModReconciler
                     TavernLogger.Warn($"mod reconcile: couldn't disable '{id}' ({e.Message}); it stays enabled.");
                 }
             }
+        }
+
+        // A modlist entry for a mod its source has replaced means the replacement, at its latest, as the
+        // launcher's modlist import reads it. The old mod then drops out of the list and is disabled below.
+        // Needs the index; when it can't be fetched the entry stands as written.
+        private (string Id, string PinnedVersion) Replace((string Id, string PinnedVersion) entry)
+        {
+            if (ModIndex.ReplacementOfUnlisted(Index, entry.Id) is not { } rep) return entry;
+            TavernLogger.Msg($"mod reconcile: '{entry.Id}' has been replaced by '{rep.By}'"
+                             + (string.IsNullOrEmpty(rep.Note) ? "" : $" ({rep.Note})") + $"; using '{rep.By}' instead.");
+            return (rep.By, null);
         }
 
         // Off the records, with no network, so a repo outage never disables a dependency. An id with no server
