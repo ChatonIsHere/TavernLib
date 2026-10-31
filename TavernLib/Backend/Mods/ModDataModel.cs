@@ -16,20 +16,18 @@ public class LibraryDependency
 
     public static LibraryDependency FromJson(JObject d)
     {
-        foreach (var key in new[] { "name", "download_url", "sha256", "filename" })
-            if (d[key] == null)
-                throw new ModManagerException($"library_dependencies entry is missing '{key}'.");
+        const string where = "library_dependencies entry";
         return new LibraryDependency
         {
-            Name = (string)d["name"],
-            DownloadUrl = (string)d["download_url"],
-            Sha256 = ModManifest.Sha256Field(d, "library_dependencies entry"),
-            Filename = (string)d["filename"],
+            Name = ModManifest.Text(d, "name", null, where),
+            DownloadUrl = ModManifest.Text(d, "download_url", null, where),
+            Sha256 = ModManifest.Sha256Field(d, where),
+            Filename = ModManifest.Text(d, "filename", null, where),
         };
     }
 }
 
-// Twin of manifest.py's _artifact_from_dict.
+// Twin of manifest.py's _artifacts_from_list, one artifact at a time.
 public class ModArtifact
 {
     // The compiled manifest's key order, which a record keeps.
@@ -127,25 +125,29 @@ public class ModManifest
     // Twin of manifest.py's _manifest_from_dict: null for an unsupported schema, throws for a broken one.
     public static ModManifest FromJson(JObject d, string sourceRepo)
     {
-        var idForMsg = (string)d["id"] ?? "?";
+        var idForMsg = d["id"]?.Type == JTokenType.String ? (string)d["id"] : "?";
 
-        if (d["manifest_version"]?.Type != JTokenType.Integer)
+        // JValue.Value is a long, or a BigInteger past one, so no cast can overflow.
+        if (d["manifest_version"] is not JValue { Type: JTokenType.Integer } version)
         {
             TavernLogger.Warn($"manifest for {idForMsg} has no integer manifest_version, skipped.");
             return null;
         }
-        var mv = (int)d["manifest_version"];
-        if (mv != SupportedMajor)
+        if (version.Value is not long mv || mv != SupportedMajor)
         {
-            TavernLogger.Warn($"manifest for {idForMsg} is schema v{mv}, this build supports v{SupportedMajor}, skipped.");
+            TavernLogger.Warn($"manifest for {idForMsg} is schema v{version.Value}, this build supports v{SupportedMajor}, skipped.");
             return null;
         }
 
         try
         {
-            foreach (var field in new[] { "id", "version" })
-                if (d[field] == null)
-                    throw new ModManagerException($"missing field '{field}'");
+            var modId = Text(d, "id", null, "manifest");
+            if (modId.Length == 0) throw new ModManagerException("manifest has an empty 'id'.");
+            var where = $"manifest for {modId}";
+            var deps = d["dependencies"];
+            if (deps != null && deps.Type != JTokenType.Null
+                && !(deps is JObject depObj && depObj.Properties().All(p => p.Value.Type == JTokenType.String)))
+                throw new ModManagerException($"{where} has a dependencies value that isn't an object of mod id to minimum version.");
 
             if (d["artifacts"] is not JArray rawArtifacts || rawArtifacts.Count == 0)
                 throw new ModManagerException($"manifest for {idForMsg} has no artifacts.");
@@ -158,19 +160,15 @@ public class ModManifest
             if (twice != null)
                 throw new ModManagerException($"manifest for {idForMsg} lists the '{twice.Key}' target twice.");
 
-            var modId = (string)d["id"];
-            var deps = d["dependencies"] is JObject depObj
-                ? depObj.Properties().ToDictionary(p => p.Name, p => (string)p.Value)
-                : new Dictionary<string, string>();
             return new ModManifest
             {
                 Id = modId,
-                Name = (string)d["name"] ?? modId,
-                Version = (string)d["version"],
-                Author = (string)d["author"] ?? modId.Split('.')[0],
-                Description = (string)d["description"] ?? "",
+                Name = Text(d, "name", modId, where),
+                Version = Text(d, "version", null, where),
+                Author = Text(d, "author", modId.Split('.')[0], where),
+                Description = Text(d, "description", "", where),
                 ParityRequired = ReadParity(d["parity_required"], idForMsg),
-                Dependencies = deps,
+                Dependencies = (deps as JObject)?.Properties().ToDictionary(p => p.Name, p => (string)p.Value) ?? new(),
                 Artifacts = artifacts,
                 SourceRepo = sourceRepo,
                 Scenes = ReadScenes(d["scenes"], idForMsg),
@@ -201,6 +199,17 @@ public class ModManifest
                 $"'{idForMsg}' has a scenes value of {value.ToString(Formatting.None)}. Leave it out "
                 + "for a mod that works in every scene, or list the ones it works in, out of normal, quest, tutorial.");
         return array.Select(t => (string)t).Distinct().ToList();
+    }
+
+    // Twin of manifest.py's _text: absent or null takes the fallback (required when it is null); any other
+    // type refuses rather than being stringified.
+    internal static string Text(JObject d, string key, string fallback, string where)
+    {
+        var value = d[key];
+        if ((value == null || value.Type == JTokenType.Null) && fallback != null) return fallback;
+        return value?.Type == JTokenType.String
+            ? (string)value
+            : throw new ModManagerException($"{where}'s '{key}' must be a string.");
     }
 
     // Twin of manifest.py's _sha256_field.

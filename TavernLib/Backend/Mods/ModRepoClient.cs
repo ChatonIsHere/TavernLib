@@ -29,28 +29,21 @@ public class ModIndex : List<ModSummary>
         Replaced.AddRange(replaced);
     }
 
-    // Twin of repos.py's replacement_for. With a source, only that source's counts: a source can retire only
-    // what it served. Without, the default source's wins, then the first source's.
-    public static ModReplacement ReplacementFor(IReadOnlyList<ModSummary> index, string modId, string sourceRepo = null)
-    {
-        var reps = (index as ModIndex)?.Replaced.Where(r => r.OldId == modId).ToList() ?? [];
-        if (sourceRepo != null)
-            return reps.FirstOrDefault(r => NormalizeUrl(r.SourceRepo) == NormalizeUrl(sourceRepo));
-        return reps.FirstOrDefault(r => IsDefaultRepo(r.SourceRepo)) ?? reps.FirstOrDefault();
-    }
-
     // Twin of repos.py's replacement_of_unlisted: for an id named without a source (a dependency, a modlist
-    // entry), only when no source lists the id and one lists its replacement.
+    // entry), only when no source lists the id and one lists its replacement. The default source's entry
+    // wins, then the first source's.
     public static ModReplacement ReplacementOfUnlisted(IReadOnlyList<ModSummary> index, string modId)
     {
         if (index.Any(s => s.Id == modId)) return null;
-        var rep = ReplacementFor(index, modId);
+        var reps = (index as ModIndex)?.Replaced.Where(r => r.OldId == modId).ToList() ?? [];
+        var rep = reps.FirstOrDefault(r => IsDefaultRepo(r.SourceRepo)) ?? reps.FirstOrDefault();
         return rep != null && index.Any(s => s.Id == rep.By) ? rep : null;
     }
 }
 
 // Twin of repos.py's index fetch and resolve.py's manifest fetches.
-public class ModRepoClient(NativeHttp http, List<string> repos)
+// deadlineUtc, when set, also bounds each fetch, as the reconcile pass's budget.
+public class ModRepoClient(NativeHttp http, List<string> repos, DateTime? deadlineUtc = null)
 {
     private const int SupportedIndexMajor = 2;
     private const long MaxJsonBytes = 8L * 1024 * 1024;
@@ -59,17 +52,28 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
     public static void ValidateRepoIndex(string url)
     {
         using var http = new NativeHttp();
-        if (new ModRepoClient(http, []).GetJson($"{NormalizeUrl(url)}/repository.json")["mods"] is not JObject)
+        var index = new ModRepoClient(http, []).GetJson($"{NormalizeUrl(url)}/repository.json");
+        if (index["mods"] is not JObject)
             throw new ModManagerException(
                 "That URL didn't serve a valid mod index (no 'mods' object in repository.json). " +
                 "Double-check it's the raw-content base URL of a correctly structured repo.");
+        if (!IsSupported(index))
+            throw new ModManagerException(
+                $"That repository's index is schema v{index["index_version"]}, and this build reads " +
+                $"v{SupportedIndexMajor} only, so it would list nothing from it.");
     }
+
+    // JValue.Value is a long, or a BigInteger past one, so no cast can overflow.
+    private static bool IsSupported(JObject index) =>
+        index["index_version"] is JValue { Type: JTokenType.Integer, Value: long v } && v == SupportedIndexMajor;
 
     private JObject GetJson(string url)
     {
         try
         {
-            var body = http.GetString(url, TimeSpan.FromSeconds(JsonTimeoutSeconds), MaxJsonBytes);
+            var timeout = TimeSpan.FromSeconds(JsonTimeoutSeconds);
+            if (deadlineUtc is { } deadline && deadline - DateTime.UtcNow < timeout) timeout = deadline - DateTime.UtcNow;
+            var body = http.GetString(url, timeout, MaxJsonBytes);
             // No date parsing: a date-like string must reach the record as install.py writes it.
             using var reader = new JsonTextReader(new StringReader(body)) { DateParseHandling = DateParseHandling.None };
             var obj = JObject.Load(reader);
@@ -95,9 +99,8 @@ public class ModRepoClient(NativeHttp http, List<string> repos)
             return Skip(e.Message);
         }
 
-        var indexVersion = index["index_version"]?.Type == JTokenType.Integer ? (int)index["index_version"] : (int?)null;
-        if (indexVersion != SupportedIndexMajor)
-            return Skip($"index schema v{indexVersion}, this build supports v{SupportedIndexMajor}.");
+        if (!IsSupported(index))
+            return Skip($"index schema v{index["index_version"]}, this build supports v{SupportedIndexMajor}.");
 
         var rows = new List<ModSummary>();
         foreach (var mod in (index["mods"] as JObject)?.Properties() ?? [])

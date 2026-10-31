@@ -16,7 +16,7 @@ public class InstalledTarget
     [JsonProperty("files")] public Dictionary<string, string> Files { get; set; }
 }
 
-// Twin of install.py's _mod_record; names, order and bytes are the on-disk contract.
+// Twin of install.py's _record_base; names, order and bytes are the on-disk contract.
 public class ModRecord
 {
     [JsonProperty("id")] public string Id { get; set; }
@@ -108,11 +108,13 @@ public class ModRecord
         return text.ToString().Replace("\u007f", "\\u007f");
     }
 
+    // Via a temp, as install.py's _write_sidecar; Replace swaps it in without a moment with no file.
     internal static void WriteFile(string path, JToken token)
     {
-        File.WriteAllBytes(path + ".tmp", Encoding.ASCII.GetBytes(Format(token)));
-        File.Delete(path);
-        File.Move(path + ".tmp", path);
+        var tmp = Path.Combine(Path.GetDirectoryName(path), $".{Path.GetFileName(path)}.tmp");
+        File.WriteAllBytes(tmp, Encoding.ASCII.GetBytes(Format(token)));
+        if (File.Exists(path)) File.Replace(tmp, path, null);
+        else File.Move(tmp, path);
     }
 
     private static readonly HashSet<string> WarnedUnowned = new();
@@ -120,15 +122,21 @@ public class ModRecord
     // Ownership is ReadOwned's alone, so a malformed field it doesn't look at costs that field, not the record.
     private static readonly JsonSerializerSettings Lenient = new() { Error = (_, e) => e.ErrorContext.Handled = true };
 
+    // For scans: an unreadable record isn't ours, so the folder is listed untracked and never written to.
     public static ModRecord Read(string gameDir, string modId, out bool enabled)
     {
-        var obj = ReadOwned(gameDir, modId, out var path);
+        enabled = false;
+        JObject obj;
+        string path;
+        try { obj = ReadOwned(gameDir, modId, out path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
         enabled = Path.GetFileName(path) == ModManagerConstants.RecordName;
         return obj?.ToObject<ModRecord>(JsonSerializer.Create(Lenient));
     }
 
-    // Twin of install.py's _read_mod_record + _owned_mod_record, the "is this folder ours" predicate. An
-    // unsafe folder name isn't ours either: one oddly named folder mustn't break every scan.
+    // Twin of install.py's _folder_record, the "is this folder ours" predicate. The id must be the folder's
+    // name, so a copied folder isn't a second install. An unsafe folder name isn't ours either: one oddly
+    // named folder mustn't break every scan. A record that can't be read throws, so it never reads as foreign.
     internal static JObject ReadOwned(string gameDir, string modId, out string path)
     {
         path = null;
@@ -138,7 +146,7 @@ public class ModRecord
 
         foreach (var candidate in new[] { ModManagerConstants.RecordName, ModManagerConstants.DisabledRecordName }.Select(n => Path.Combine(dir, n)))
         {
-            if (ParseObject(candidate) is not { } obj || obj["id"]?.Type != JTokenType.String || ((string)obj["id"]).Length == 0) continue;
+            if (ParseObject(candidate) is not { } obj || obj["id"]?.Type != JTokenType.String || (string)obj["id"] != modId) continue;
             if (obj["parity_required"]?.Type != JTokenType.Boolean)
             {
                 lock (WarnedUnowned)
@@ -153,20 +161,20 @@ public class ModRecord
     }
 
     // Strict UTF-8 with no BOM, as install.py reads it, and no date parsing, so a patched record writes back
-    // what it read.
+    // what it read. A missing or unparseable file is null; a read error throws, as in _read_sidecar.
     internal static JObject ParseObject(string path)
     {
+        if (!File.Exists(path)) return null;
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return null;
         try
         {
-            if (!File.Exists(path)) return null;
-            var bytes = File.ReadAllBytes(path);
-            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return null;
             using var reader = new JsonTextReader(new StringReader(new UTF8Encoding(false, true).GetString(bytes)))
                 { DateParseHandling = DateParseHandling.None };
             var token = JToken.ReadFrom(reader);
             return reader.Read() ? null : token as JObject;
         }
-        catch (Exception)
+        catch (Exception e) when (e is JsonException or ArgumentException)
         {
             return null;
         }

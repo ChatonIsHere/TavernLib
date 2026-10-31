@@ -54,7 +54,7 @@ internal static class MelonModFolders
             if (!loader.DisableSubFolderManifest && !File.Exists(Path.Combine(dir, ModManagerConstants.RecordName))) continue;
             AddWithSubfolders(dir, wanted);
 
-            // The record decides, never the folder name.
+            // Only an enabled record of ours listing this target adds its build.
             var name = Path.GetFileName(dir);
             var build = Path.Combine(dir, "." + target);
             if (Directory.Exists(build) && ModRecord.Read(gameDir, name, out var enabled) is { } record && enabled && record.Lists(target))

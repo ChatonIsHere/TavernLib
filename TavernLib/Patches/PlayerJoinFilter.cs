@@ -47,8 +47,15 @@ public static class PlayerJoinFilter
         catch (Exception e)
         {
             TavernLogger.Error($"Error when filtering join request! {e}");
-            // No rethrow: from an async void handler it can take the process down.
-            await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, "Error when checking authenticity");
+            // Nothing may escape an async void handler: it would take the process down.
+            try
+            {
+                await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, "Error when checking authenticity");
+            }
+            catch (Exception denyError)
+            {
+                TavernLogger.Error($"Couldn't deny the join either: {denyError}");
+            }
         }
     }
 
