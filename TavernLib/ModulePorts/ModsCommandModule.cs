@@ -38,8 +38,8 @@ public static class ModsCommandModule
         var listing = string.Join("\n", lines);
         if (damaged.Count == 0) return listing;
         return listing + $"\n\n{damaged.Count} mod(s) no longer match the server files that were installed "
-                       + "(a cut-short write, or antivirus removing a DLL). They'll be reinstalled "
-                       + "automatically on the next server restart.";
+                       + "(a cut-short write, or antivirus removing a DLL). A restart with /modlist "
+                       + "reinstalls them.";
     }
 
     private static string State(bool enabled) => enabled ? "enabled" : "disabled";
@@ -59,7 +59,7 @@ public static class ModsCommandModule
         config.ReadFromFile();
         var repos = config.LastRead.Repos ??= new(); // "repos": null in a hand-edited file
         var shorthand = RepoShorthand(url);
-        if (shorthand == RepoShorthand(DefaultRepo) || repos.Values.Any(v => NormalizeUrl(v) == url))
+        if (IsDefaultRepo(url) || repos.Values.Any(v => NormalizeUrl(v) == url))
             return "That repository is already registered.";
         if (repos.TryGetValue(shorthand, out var existingUrl))
             return $"'{shorthand}' is already registered pointing at a different URL ({existingUrl}); remove it from mod_repos.json first if you want to repoint it.";

@@ -45,7 +45,6 @@ public sealed class NativeHttp : IDisposable
             request = WinHttpOpenRequest(connection, "GET", uri.PathAndQuery, null, null, IntPtr.Zero, flags);
             Check(request != IntPtr.Zero, "WinHttpOpenRequest");
 
-            // On the request, not the shared session.
             var timeoutMs = (int)Math.Min(RemainingMs(deadlineUtc, url), stallTimeout.TotalMilliseconds);
             Check(WinHttpSetTimeouts(request, timeoutMs, timeoutMs, timeoutMs, timeoutMs), "WinHttpSetTimeouts");
 
