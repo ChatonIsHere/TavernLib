@@ -97,7 +97,7 @@ public static class JoinRejectionRecorder
 
             TavernLogger.Msg($"Quitting for the launcher to install {_refusedBy}'s mods and rejoin.");
             _refusedBy = null;
-            __result = Task.FromResult(JoinResult.FailedResult(ClientJoinResult.Cancelled));
+            __result = Task.FromResult(JoinResult.FailedResult(ClientJoinResult.JoinRejected, "Quitting to install this server's mods."));
             UnityEngine.Application.Quit();
             return false;
         }
