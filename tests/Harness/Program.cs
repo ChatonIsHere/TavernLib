@@ -20,6 +20,7 @@ using TavernLib.Backend.Mods;
 //   resolve <dir> <rootId@version> <target>              ResolveDependencies over a local index (see the mode)
 //   format <in.json> <out>                               ModRecord.Format of the parsed file
 //   validaterepo <baseUrl>                               what `modmanager addrepo` checks before adding a repo
+//   claim <gameDir>                                      ModParity.LocalClaim, the claim an in-game join sends
 static class Program
 {
     static readonly Assembly Lib = typeof(ModVersion).Assembly;
