@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -32,6 +33,18 @@ public static class ModParity
             : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetClientWindows)
               && (string.IsNullOrEmpty(mod.Version) || !clientMods.TryGetValue(mod.Id, out var have) || have != mod.Version);
         return serverMods.Where(Fails).Select(m => new RequiredMod { Id = m.Id, Version = m.Version, SourceRepo = m.SourceRepo }).ToList();
+    }
+
+    // The claim the launcher sends (launcher_window._mods_claim): {id: version} of the enabled mods installed
+    // for client_windows. Public for in-game joins that mint their own token, like TavernEssentials' board,
+    // which call it by reflection.
+    public static string LocalClaim(string gameDir)
+    {
+        var mods = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var m in ModInstaller.ScanMods(gameDir).Installed)
+            if (m.Enabled && m.Record.Lists(ModManagerConstants.TargetClientWindows))
+                mods[m.Record.Id] = m.Record.Version ?? "";
+        return JsonConvert.SerializeObject(mods);
     }
 
     public static Dictionary<string, string> ReadClaim(string claim)
