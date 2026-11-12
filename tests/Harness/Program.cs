@@ -61,6 +61,9 @@ static class Program
             case "select":
                 foreach (var dir in Select(args[1], args[2])) Console.WriteLine(dir);
                 return 0;
+            case "claim":
+                Console.WriteLine(TavernLib.Backend.Auth.ModParity.LocalClaim(args[1]));
+                return 0;
             case "parity":
                 Console.WriteLine(Parity(args[1], args[2] == "none" ? null : args[2]));
                 return 0;
