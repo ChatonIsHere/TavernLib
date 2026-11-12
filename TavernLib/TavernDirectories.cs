@@ -17,4 +17,5 @@ public static class TavernDirectories
     public static string TavernServer => Path.Combine(ModdingTavern, "tavern_server.json");
     public static string ModRepos => Path.Combine(ModdingTavern, "mod_repos.json");
     public static string LastRejection => Path.Combine(ModdingTavern, "last_rejection.json");
+    public static string LauncherPath => Path.Combine(ModdingTavern, "launcher_path.txt");
 }
