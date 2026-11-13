@@ -63,7 +63,7 @@ internal static class ConsoleTokenLog
             if (!File.Exists(FilePath)) return [];
 
             var entries = new List<JObject>();
-            foreach (var line in File.ReadAllLines(FilePath).Reverse())
+            foreach (var line in Enumerable.Reverse(File.ReadAllLines(FilePath)))
             {
                 JObject entry;
                 try
