@@ -6,6 +6,7 @@ using MonoMod.RuntimeDetour;
 using TavernLib.Backend;
 using TavernLib.Backend.Api;
 using TavernLib.Backend.Mods;
+using TavernLib.Backend.RemoteConsole;
 using TavernLib.Backend.Server;
 using TavernLib.Debugging;
 using TavernLib.ModdingApi;
@@ -38,6 +39,7 @@ public class Tavern : MelonPlugin
     public override void OnLateInitializeMelon()
     {
         SetupSelectionFixPatch();
+        GameCommandPatches.Apply(HarmonyInstance);
     }
 
 
@@ -85,7 +87,9 @@ public class Tavern : MelonPlugin
             if (CommandLineArguments.Contains(CommandLineArguments.StartServerArgument))
             {
                 TavernLogger.Msg("Booting TavernLib in server mode");
-                if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) TeenyPatches.EnsureConsoleToken();
+                ConsoleTokenStore.Load();
+                ConsoleAuth.EnsureOwnerToken();
+                ConsoleTokenPatches.Start();
 
                 // Before TavernManager, whose listener answers from Mods/, and the log-archive timer, whose first
                 // tick gives up for good if NLog's target isn't up 10 s later.

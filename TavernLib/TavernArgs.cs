@@ -9,4 +9,5 @@ public static class TavernArgs
     public const string QuestScene = "/questScene";
     public const string TutorialScene = "/tutorialScene";
     public const string ModsListFile = "/modlist";
+    public const string ListingApi = "/listing_api";
 }
