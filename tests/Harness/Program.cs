@@ -11,7 +11,7 @@ using TavernLib.Backend.Mods;
 //   reconcile <gameDir> <repoBase> <id,id,...> [scene]   ModReconciler for the server target against repoBase only
 //   snap <gameDir>                                       server snapshot as JSON {hash, count, mods, untracked}
 //   select <gameDir> <target>                            MelonLoader's Mods scan, then TavernLib's selection; prints _modDirs
-//   parity <gameDir> <claimJson|none>                    join verdict against the folder's server snapshot
+//   parity <gameDir> <modsJson|none>                     join verdict against the folder's server snapshot
 //   verify <gameDir> <id> <target>                       VerifyTarget result
 //   list <gameDir>                                       what `modmanager list` would print
 //   manifest <file>                                      parse verdict, each target's URL and the dll install name
@@ -20,7 +20,7 @@ using TavernLib.Backend.Mods;
 //   resolve <dir> <rootId@version> <target>              ResolveDependencies over a local index (see the mode)
 //   format <in.json> <out>                               ModRecord.Format of the parsed file
 //   validaterepo <baseUrl>                               what `modmanager addrepo` checks before adding a repo
-//   claim <gameDir>                                      ModParity.LocalClaim, the claim an in-game join sends
+//   mods <gameDir>                                       ModParity.LocalMods, the list an in-game join sends
 static class Program
 {
     static readonly Assembly Lib = typeof(ModVersion).Assembly;
@@ -62,8 +62,8 @@ static class Program
             case "select":
                 foreach (var dir in Select(args[1], args[2])) Console.WriteLine(dir);
                 return 0;
-            case "claim":
-                Console.WriteLine(TavernLib.Backend.Auth.ModParity.LocalClaim(args[1]));
+            case "mods":
+                Console.WriteLine(TavernLib.Backend.Auth.ModParity.LocalMods(args[1]));
                 return 0;
             case "parity":
                 Console.WriteLine(Parity(args[1], args[2] == "none" ? null : args[2]));
@@ -203,10 +203,12 @@ static class Program
         return JObject.Load(reader);
     }
 
-    static string Parity(string gameDir, string claim)
+    static string Parity(string gameDir, string clientMods)
     {
         var (_, mods, _) = ModHandshake.Snapshot(gameDir);
-        var mismatches = TavernLib.Backend.Auth.ModParity.CheckJoin(mods, claim);
+        var list = clientMods == null ? null : JsonConvert.DeserializeObject<Dictionary<string, string>>(clientMods,
+            new JsonSerializerSettings { DateParseHandling = DateParseHandling.None });
+        var mismatches = TavernLib.Backend.Auth.ModParity.CheckJoin(mods, list);
         return mismatches.Count == 0 ? "admit" : "refuse " + JsonConvert.SerializeObject(mismatches);
     }
 }
