@@ -10,4 +10,5 @@ public static class TavernArgs
     public const string TutorialScene = "/tutorialScene";
     public const string ModsListFile = "/modlist";
     public const string ListingApi = "/listing_api";
+    public const string Rejoin = "/tavern_rejoin";     // the launcher's rejoin after installing a server's mods
 }

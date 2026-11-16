@@ -112,7 +112,11 @@ public class Tavern : MelonPlugin
                 // Servers run through TavernLauncher are backed up by the launcher itself
                 if (!CommandLineArguments.Contains(TavernArgs.DontManageAuth)) ServerBackup.Start();
             }
-            else MelonModFolders.SyncForBoot(serverProcess: false);
+            else
+            {
+                MelonModFolders.SyncForBoot(serverProcess: false);
+                JoinRejectionRecorder.InitQuickJoin();
+            }
             
             // Client & Server Services
             TavernServices.AddService(new EntranceMessageHandler());
