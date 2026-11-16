@@ -23,11 +23,11 @@ public static class ModParity
         [JsonProperty("source_repo")] public string SourceRepo;
     }
 
-    // No readable claim: the Quest app, an in-game board or a direct connect. A mod with no recorded version
-    // always mismatches, as in the launcher's _verify_mod_parity, so "no version" can't match "no mod".
-    public static List<RequiredMod> CheckJoin(List<ModHandshake.Entry> serverMods, string claim)
+    // clientMods is the player's set_mods list, null when they sent none: the Quest app or a direct connect.
+    // A mod with no recorded version always mismatches, as in the launcher's _verify_mod_parity, so
+    // "no version" can't match "no mod".
+    public static List<RequiredMod> CheckJoin(List<ModHandshake.Entry> serverMods, Dictionary<string, string> clientMods)
     {
-        var clientMods = ReadClaim(claim);
         bool Fails(ModHandshake.Entry mod) => clientMods == null
             ? BlocksClaimless(mod)
             : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetClientWindows)
@@ -35,30 +35,15 @@ public static class ModParity
         return serverMods.Where(Fails).Select(m => new RequiredMod { Id = m.Id, Version = m.Version, SourceRepo = m.SourceRepo }).ToList();
     }
 
-    // The claim the launcher sends (launcher_window._mods_claim): {id: version} of the enabled mods installed
-    // for client_windows. Public for in-game joins that mint their own token, like TavernEssentials' board,
+    // The list the launcher sends in set_mods (launcher_window._mods_list), as JSON: {id: version} of the
+    // enabled mods installed for client_windows. Public for in-game joins, like TavernEssentials' board,
     // which call it by reflection.
-    public static string LocalClaim(string gameDir)
+    public static string LocalMods(string gameDir)
     {
         var mods = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var m in ModInstaller.ScanMods(gameDir).Installed)
             if (m.Enabled && m.Record.Lists(ModManagerConstants.TargetClientWindows))
                 mods[m.Record.Id] = m.Record.Version ?? "";
         return JsonConvert.SerializeObject(mods);
-    }
-
-    public static Dictionary<string, string> ReadClaim(string claim)
-    {
-        if (string.IsNullOrEmpty(claim)) return null;
-        try
-        {
-            // No date parsing, so a value reads back exactly as sent.
-            return JsonConvert.DeserializeObject<Dictionary<string, string>>(claim,
-                new JsonSerializerSettings { DateParseHandling = DateParseHandling.None });
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
     }
 }

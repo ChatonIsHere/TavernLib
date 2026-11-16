@@ -20,6 +20,9 @@ public class UserConfig
         [JsonProperty("token")] public string Token { get; set; }
         [JsonProperty("registered_from")] public string RegisteredFrom { get; set; }
         [JsonProperty("roles")] public List<string> Roles { get; set; } = [];
+        // {id: version} of the mods the player's game loads, from the handshake's set_mods. Null when this
+        // join didn't send one.
+        [JsonProperty("mods", NullValueHandling = NullValueHandling.Ignore)] public Dictionary<string, string> Mods { get; set; }
         [JsonExtensionData] private IDictionary<string, JToken> Extra { get; set; }
 
         public bool HasRole(string role) =>
