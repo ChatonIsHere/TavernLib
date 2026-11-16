@@ -52,6 +52,12 @@ internal static class AuthPayloads
     }
 
 
+    public readonly struct Ok
+    {
+        [JsonProperty(PropertyName = "status")] private string Status => "ok";
+    }
+
+
     public readonly struct NeedsPassword
     {
         [JsonProperty(PropertyName = "status")] private string Status => "needs_password";

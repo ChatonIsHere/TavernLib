@@ -161,7 +161,7 @@ public static class PlayerJoinFilter
     private static async Task<bool> FilterModParity(Connection connection, Stream stream)
     {
         List<ModParity.RequiredMod> mismatches;
-        string modsClaim;
+        Dictionary<string, string> clientMods;
         try
         {
             var (_, serverMods, _) = ModHandshake.Snapshot(MelonEnvironment.GameRootDirectory);
@@ -171,9 +171,13 @@ public static class PlayerJoinFilter
             var requestJoinMessage = new RequestJoinMessage();
             requestJoinMessage.Serialize(connection, readingStream);
 
+            // The token passed FilterInvalidTokens, so this is their account. The mod list came over the
+            // handshake: in the join token it outgrows the game's join message.
             var token = JWTUtility.CreateFromString(requestJoinMessage.UserCredentials, true);
-            modsClaim = token.Claims.FirstOrDefault(claim => claim.Type == "TavernMods")?.Value;
-            mismatches = ModParity.CheckJoin(serverMods, modsClaim);
+            var username = token.Claims.First(claim => claim.Type == "Username").Value;
+            var users = TavernServices.GetService<TavernManager>().UserConfig.Read().Users;
+            clientMods = users.TryGetValue(username.ToLowerInvariant(), out var user) ? user?.Mods : null;
+            mismatches = ModParity.CheckJoin(serverMods, clientMods);
         }
         catch (Exception e)
         {
@@ -186,7 +190,7 @@ public static class PlayerJoinFilter
 
         var reason = $"{ModParity.MismatchReasonPrefix}{JsonConvert.SerializeObject(mismatches)}";
         TavernLogger.Warn($"User at {AddressOf(connection)} rejected for mod mismatch"
-            + (ModParity.ReadClaim(modsClaim) == null ? " (no readable TavernMods claim)" : "") + $": {reason}");
+            + (clientMods == null ? " (no mod list sent)" : "") + $": {reason}");
         await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, reason);
         return false;
     }

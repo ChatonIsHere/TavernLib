@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -22,6 +23,9 @@ internal class AuthManager
     private const int MaxTokenLength = 128;
     private const int ApplicationsPerAddress = 3;
     private const int ApplicationsMax = 100;
+    private const int MaxPayload = 65536;
+    private const int MaxMods = 1000;
+    private const int MaxModField = 128;
     private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(5);
 
     private readonly TavernManager _manager;
@@ -88,7 +92,8 @@ internal class AuthManager
     {
         TavernLogger.Msg("Reading payload");
 
-        var buffer = new byte[4096];
+        // Room for set_mods' list.
+        var buffer = new byte[MaxPayload];
         var totalRead = 0;
 
         while (totalRead < buffer.Length)
@@ -146,11 +151,14 @@ internal class AuthManager
 
             TavernLogger.Msg("Finding payload type");
 
-            var jsonPayload = JObject.Parse(payload);
+            // No date parsing, so a version or password reads exactly as sent.
+            var jsonPayload = JsonConvert.DeserializeObject<JObject>(payload,
+                new JsonSerializerSettings { DateParseHandling = DateParseHandling.None });
 
             if (jsonPayload.ContainsKey("ping")) await WritePongResponse(stream);
             else if (jsonPayload.ContainsKey("register_whitelist_application")) await ManageWhitelistApplicationRequest(stream, jsonPayload, address);
             else if (jsonPayload.ContainsKey("mods_list")) await WriteModsListResponse(stream);
+            else if (jsonPayload.ContainsKey("set_mods")) await ManageSetModsRequest(stream, jsonPayload, address);
             else if (jsonPayload.ContainsKey("username")) await ManageAuthRequest(stream, jsonPayload, address);
             else
             {
@@ -300,6 +308,13 @@ internal class AuthManager
                 response = new AuthPayloads.GenericFail("Name taken by someone else, or you lost the token to your account!");
                 return false;
             }
+
+            // This join sends its own list after installing its mods, so the last join's can't stand in.
+            if (userData.Mods != null)
+            {
+                userData.Mods = null;
+                changed = true;
+            }
         }
         else
         {
@@ -338,6 +353,59 @@ internal class AuthManager
 
         response = new AuthPayloads.AuthenticateOk(userData.UserId, settings.QuestScene, settings.TutorialScene);
         return changed;
+    }
+
+    // The mods the player's game will load, {id: version}, sent once they're installed. PlayerJoinFilter checks
+    // the join against it, so the join token stays the same size whatever the mods.
+    private async Task ManageSetModsRequest(Stream stream, JObject payload, string ip)
+    {
+        var username = payload.Value<string>("username");
+        var token = payload.Value<string>("token");
+        var mods = ReadModList(payload["mods"]);
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(token) || mods == null)
+        {
+            await WriteResponse(stream, new AuthPayloads.GenericFail("Malformed mod list"));
+            return;
+        }
+
+        object response = new AuthPayloads.GenericFail("Account not found. Join the server first.");
+        try
+        {
+            _manager.UserConfig.Update(config =>
+            {
+                if (!config.Users.TryGetValue(username.ToLowerInvariant(), out var user) || user == null
+                    || string.IsNullOrEmpty(user.Token) || user.Token != token)
+                {
+                    _limits.Fail(ip);
+                    return false;
+                }
+
+                user.Mods = mods;
+                response = new AuthPayloads.Ok();
+                return true;
+            });
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or JsonException)
+        {
+            response = new AuthPayloads.GenericFail("The server can't read its user list right now");
+        }
+
+        await WriteResponse(stream, response);
+    }
+
+    // Null unless every entry is a short id and version.
+    private static Dictionary<string, string> ReadModList(JToken token)
+    {
+        if (token is not JObject list || list.Count > MaxMods) return null;
+        var mods = new Dictionary<string, string>();
+        foreach (var mod in list.Properties().OrderBy(p => p.Name, StringComparer.Ordinal))
+        {
+            if (mod.Value.Type != JTokenType.String || mod.Name.Length is 0 or > MaxModField
+                || ((string)mod.Value).Length > MaxModField) return null;
+            mods[mod.Name] = (string)mod.Value;
+        }
+
+        return mods;
     }
 
     // One past the highest id in the file, never the user count: after a user is removed, the
