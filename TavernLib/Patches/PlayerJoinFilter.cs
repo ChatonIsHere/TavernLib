@@ -188,10 +188,9 @@ public static class PlayerJoinFilter
 
         if (mismatches.Count == 0) return true;
 
-        var reason = $"{ModParity.MismatchReasonPrefix}{JsonConvert.SerializeObject(mismatches)}";
         TavernLogger.Warn($"User at {AddressOf(connection)} rejected for mod mismatch"
-            + (clientMods == null ? " (no mod list sent)" : "") + $": {reason}");
-        await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, reason);
+            + (clientMods == null ? " (no mod list sent)" : "") + $": {JsonConvert.SerializeObject(mismatches)}");
+        await ServerPlayerConnectionHandlerOld.PlayerDenied(connection, ModParity.RefusalReason(mismatches));
         return false;
     }
 
