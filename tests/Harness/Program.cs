@@ -21,6 +21,7 @@ using TavernLib.Backend.Mods;
 //   format <in.json> <out>                               ModRecord.Format of the parsed file
 //   validaterepo <baseUrl>                               what `modmanager addrepo` checks before adding a repo
 //   mods <gameDir>                                       ModParity.LocalMods, the list an in-game join sends
+//   reason <count>                                       ModParity.RefusalReason for that many missing mods: bytes, listed
 static class Program
 {
     static readonly Assembly Lib = typeof(ModVersion).Assembly;
@@ -62,6 +63,19 @@ static class Program
             case "select":
                 foreach (var dir in Select(args[1], args[2])) Console.WriteLine(dir);
                 return 0;
+            case "reason":
+            {
+                var missing = Enumerable.Range(0, int.Parse(args[1])).Select(i => new TavernLib.Backend.Auth.ModParity.RequiredMod
+                {
+                    Id = $"SomeAuthor.SomeFairlyLongModName{i:000}", Version = "10.20.30",
+                    SourceRepo = "https://raw.githubusercontent.com/ModdingTavern/TavernMods/main",
+                }).ToList();
+                var reason = TavernLib.Backend.Auth.ModParity.RefusalReason(missing);
+                var listed = JsonConvert.DeserializeObject<List<TavernLib.Backend.Auth.ModParity.RequiredMod>>(
+                    reason.Substring(TavernLib.Backend.Auth.ModParity.MismatchReasonPrefix.Length));
+                Console.WriteLine($"{System.Text.Encoding.UTF8.GetByteCount(reason)} {listed.Count}");
+                return 0;
+            }
             case "mods":
                 Console.WriteLine(TavernLib.Backend.Auth.ModParity.LocalMods(args[1]));
                 return 0;
