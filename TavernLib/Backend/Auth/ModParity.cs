@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Newtonsoft.Json;
 using TavernLib.Backend.Mods;
 
@@ -33,6 +34,25 @@ public static class ModParity
             : mod.ParityRequired && mod.Targets.Contains(ModManagerConstants.TargetClientWindows)
               && (string.IsNullOrEmpty(mod.Version) || !clientMods.TryGetValue(mod.Id, out var have) || have != mod.Version);
         return serverMods.Where(Fails).Select(m => new RequiredMod { Id = m.Id, Version = m.Version, SourceRepo = m.SourceRepo }).ToList();
+    }
+
+    // The refusal reaches the player in one game message (1100 bytes), so it lists only the mods that fit,
+    // always at least one. The launcher's rejoin syncs with the server's whole list, which covers the rest.
+    public const int MaxReasonBytes = 700;
+
+    public static string RefusalReason(List<RequiredMod> mismatches)
+    {
+        var listed = new List<RequiredMod>();
+        var reason = MismatchReasonPrefix + "[]";
+        foreach (var mod in mismatches)
+        {
+            listed.Add(mod);
+            var next = MismatchReasonPrefix + JsonConvert.SerializeObject(listed);
+            if (listed.Count > 1 && Encoding.UTF8.GetByteCount(next) > MaxReasonBytes) break;
+            reason = next;
+        }
+
+        return reason;
     }
 
     // The list the launcher sends in set_mods (launcher_window._mods_list), as JSON: {id: version} of the
