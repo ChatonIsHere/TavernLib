@@ -23,6 +23,7 @@ public static class JoinRejectionRecorder
 {
     private static string _refusedBy;
     private static DateTime _refusedAt;
+    private static string _shown;
     private static MelonPreferences_Entry<bool> _quickJoin;
 
     // The launcher's own launches pass /force_offline, and it watches those.
@@ -108,6 +109,7 @@ public static class JoinRejectionRecorder
                 : recoverable
                     ? "This server needs mods you don't have. Join it again to quit and install them with the Tavern Launcher, or turn on Quick join to do this straight away."
                     : "This server needs mods you don't have. Join it from the Tavern Launcher to install them.";
+            _shown = joinMessage.error;
             // A few seconds to read that first.
             if (quick) MelonCoroutines.Start(HandOverSoon());
         }
@@ -115,6 +117,17 @@ public static class JoinRejectionRecorder
         {
             TavernLogger.Error($"Error recording join rejection: {e}");
         }
+    }
+
+    // The game shows one fixed line for any rejected join ("Please contact support"); this shows the line
+    // above instead, so a player without TavernEssentials sees why and what to do. TavernEssentials' own
+    // line, which quotes it, stays.
+    [HarmonyPatch(typeof(JoinResult), nameof(JoinResult.ErrorMessage), MethodType.Getter), HarmonyPostfix]
+    public static void ShowWhy(JoinResult __instance, ref string __result)
+    {
+        var message = __instance.Message;
+        if (message != null && message == _shown && __instance.Result == ClientJoinResult.JoinRejected
+            && __result?.Contains(message) != true) __result = message;
     }
 
     [HarmonyPatch(typeof(JoinServerPipeline), nameof(JoinServerPipeline.AttemptToConnectToServer)), HarmonyPrefix]
