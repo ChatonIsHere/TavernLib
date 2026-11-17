@@ -104,11 +104,10 @@ public static class JoinRejectionRecorder
             _refusedAt = DateTime.UtcNow;
             // The server sends JoinAccepted, which the game retries; a retry would count as joining again.
             joinMessage.joinResult = (int)ClientJoinResult.JoinRejected;
-            joinMessage.error = quick
-                ? "This server needs mods you don't have. Closing the game to install them and rejoin."
-                : recoverable
-                    ? "This server needs mods you don't have. Join it again to quit and install them with the Tavern Launcher, or turn on Quick join to do this straight away."
-                    : "This server needs mods you don't have. Join it from the Tavern Launcher to install them.";
+            const string needsMods = "You are missing mods that are required for this server. ";
+            joinMessage.error = needsMods + (quick ? "Closing the game to install them and rejoin."
+                : recoverable ? "Try joining again to automatically install missing mods."
+                : "Join it from the Tavern Launcher to install them.");
             _shown = joinMessage.error;
             // A few seconds to read that first.
             if (quick) MelonCoroutines.Start(HandOverSoon());
