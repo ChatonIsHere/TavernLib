@@ -233,6 +233,7 @@
     <Compile Include="Patches\GameCommandPatches.cs" />
     <Compile Include="Patches\ConsoleEventsPatch.cs" />
     <Compile Include="Patches\EventPatches.cs" />
+    <Compile Include="Patches\ForestResetPatches.cs" />
     <Compile Include="Patches\GarbageCollectionInterval.cs" />
     <Compile Include="Patches\MessageExpanderPatch.cs" />
     <Compile Include="Patches\SceneIndexPatches.cs" />
