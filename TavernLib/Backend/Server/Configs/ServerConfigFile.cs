@@ -39,7 +39,11 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
                 var text = File.ReadAllText(FilePath);
                 if (string.IsNullOrWhiteSpace(text)) throw new InvalidDataException($"{FileName} is empty");
 
-                return Accept(JsonConvert.DeserializeObject<T>(text) ?? throw new InvalidDataException($"{FileName} is empty"));
+                var config = JsonConvert.DeserializeObject<T>(text) ?? throw new InvalidDataException($"{FileName} is empty");
+                // A file that can't be written back still loads, fixed up, this time.
+                if (Tidy(config))
+                    try { Write(config); } catch (Exception) { }
+                return Accept(config);
             }
             catch (Exception e)
             {
@@ -49,6 +53,9 @@ public abstract class ServerConfigFile<T>(string filePath) where T : class, new(
             }
         }
     }
+
+    // Fixes up a config just read. Returning true writes the fixed config back to the file.
+    protected virtual bool Tidy(T config) => false;
 
     public virtual void WriteToFile()
     {

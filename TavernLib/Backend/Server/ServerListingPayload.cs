@@ -27,7 +27,7 @@ public struct ServerListingPayload
             ListingToken = config.LastRead.CommunityListingToken,
             Name = config.LastRead.Name,
             Port = tavernConfig.LastRead.ServerPort,
-            PlayerLimit = ServerHandler.Current?.PlayerLimit ?? config.LastRead.MaxPlayers,
+            PlayerLimit = ServerHandler.Current?.PlayerLimit ?? config.LastRead.PlayerLimit,
             HasPassword = !string.IsNullOrWhiteSpace(config.LastRead.PasswordHash),
             PlayerCount = ServerHandler.Current?.Connections ?? 0,
             CommunityListed = config.LastRead.CommunityListed,
