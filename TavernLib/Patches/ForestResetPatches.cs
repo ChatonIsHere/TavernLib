@@ -26,10 +26,22 @@ public static class ForestResetPatches
     private static readonly HashSet<ForestGenerator> Resetting = new();
 
     [HarmonyPatch(typeof(ForestGenerator), nameof(ForestGenerator.Wipe)), HarmonyPrefix]
-    public static bool QueueReset(ForestGenerator __instance, int newSeed, ref Task __result)
+    public static bool QueueReset(ForestGenerator __instance, int newSeed, ref Task __result, MethodBase __originalMethod)
     {
+        // A mod with its own reset (Forest Performance's runs a whole maintenance flow) does the job instead.
+        if (OtherReset(__originalMethod)) return true;
         __result = Queue(__instance, newSeed);
         return false;
+    }
+
+    private static bool? _otherReset;
+
+    private static bool OtherReset(MethodBase wipe)
+    {
+        _otherReset ??= HarmonyLib.Harmony.GetPatchInfo(wipe)?.Prefixes
+            .Any(patch => patch.PatchMethod.DeclaringType?.Assembly != typeof(ForestResetPatches).Assembly) == true;
+        if (_otherReset == true) TavernLogger.Msg("Another mod replaces the forest reset, so TavernLib leaves it to that mod");
+        return _otherReset.Value;
     }
 
     // True when a reset is waiting for the next start.
@@ -114,6 +126,8 @@ public static class ForestResetPatches
     private static async Task<string> Answer(ForestGenerator forest)
     {
         await forest.Wipe();
-        return $"{forest.Cache} is reset. Players in it were moved out. The new forest is made when the server restarts.";
+        return IsQueued(forest)
+            ? $"{forest.Cache} is reset. Players in it were moved out. The new forest is made when the server restarts."
+            : $"{forest.Cache}: another mod's reset ran instead of TavernLib's. Check the log for what it did.";
     }
 }
