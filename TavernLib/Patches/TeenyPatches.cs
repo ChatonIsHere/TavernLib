@@ -149,9 +149,18 @@ public class TeenyPatches
             ? parsedPort
             : 1757;
 
-        _ = GameModeManager.JoinServer(DevGameServerInfo.GetDevServer(ip, port, 0));
+        var server = DevGameServerInfo.GetDevServer(ip, port, 0);
+        server.ConnectionInfo.WebServerPort = WebPortArg();
+        _ = GameModeManager.JoinServer(server);
         return false;
     }
+
+    // Null leaves the game on its own 1761.
+    private static int? WebPortArg() =>
+        CommandLineArguments.TryGetNextArguments(TavernArgs.DevServerWebPort, 1, out var args)
+        && int.TryParse(args[0], out var port) && port is > 0 and <= 65535
+            ? port
+            : null;
 
     #endregion
 
@@ -273,7 +282,8 @@ public class TeenyPatches
         devInfo.ConnectionInfo = new ConnectionInfo
         {
             Address = IPAddress.Loopback,
-            GamePort = port
+            GamePort = port,
+            WebServerPort = WebPortArg()
         };
 
         __result = devInfo;

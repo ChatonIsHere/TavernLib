@@ -13,7 +13,7 @@ internal static class AuthPayloads
 
 
     // modsHash/modsCount are null when Mods/ couldn't be read: an empty hash would claim "no mods".
-    public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort,
+    public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort, int webPort,
         string modsHash, int? modsCount)
     {
         [JsonProperty(PropertyName = "status")] private string Pong => "pong";
@@ -21,6 +21,7 @@ internal static class AuthPayloads
         [JsonProperty(PropertyName = "password_required")] private bool PasswordRequired { get; set; } = passwordRequired;
         [JsonProperty(PropertyName = "whitelist_enabled")] private bool WhitelistEnabled { get; set; } = whitelistEnabled;
         [JsonProperty(PropertyName = "game_port")] private int GamePort { get; set; } = gamePort;
+        [JsonProperty(PropertyName = "web_port")] private int WebPort { get; set; } = webPort;
         [JsonProperty(PropertyName = "mods_hash")] private string ModsHash { get; set; } = modsHash;
         [JsonProperty(PropertyName = "mods_count")] private int? ModsCount { get; set; } = modsCount;
     }
@@ -43,12 +44,16 @@ internal static class AuthPayloads
 
 
 
-    public readonly struct AuthenticateOk(ulong userId, bool questSceneRequired, bool tutorialSceneRequired)
+    // The ports go back with every join, so a client that found this server by its auth port alone
+    // (an SRV record, or a typed address) learns where the game and its web server are.
+    public readonly struct AuthenticateOk(ulong userId, bool questSceneRequired, bool tutorialSceneRequired, int gamePort, int webPort)
     {
         [JsonProperty(PropertyName = "status")] private string Status => "ok";
         [JsonProperty(PropertyName = "user_id")] private ulong UserId => userId;
         [JsonProperty(PropertyName = "quest_scene_required")] private bool QuestSceneRequired => questSceneRequired;
         [JsonProperty(PropertyName = "tutorial_scene_required")] private bool TutorialSceneRequired => tutorialSceneRequired;
+        [JsonProperty(PropertyName = "game_port")] private int GamePort => gamePort;
+        [JsonProperty(PropertyName = "web_port")] private int WebPort => webPort;
     }
 
 

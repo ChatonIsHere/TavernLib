@@ -18,7 +18,6 @@ namespace TavernLib.Backend.Auth;
 
 internal class AuthManager
 {
-    private const int Port = 1762;
     private const int AccountsPerAddress = 5;
     private const int MaxTokenLength = 128;
     private const int ApplicationsPerAddress = 3;
@@ -30,6 +29,7 @@ internal class AuthManager
 
     private readonly TavernManager _manager;
     private readonly AuthLimits _limits = new();
+    private readonly int _port;
     private TcpListener _listener;
     private volatile bool _stopping;
 
@@ -37,6 +37,7 @@ internal class AuthManager
     public AuthManager(TavernManager manager)
     {
         _manager = manager;
+        _port = manager.TavernConfig.LastRead.Auth;
 
         _ = StartAuthCycle();
     }
@@ -48,12 +49,12 @@ internal class AuthManager
 
         try
         {
-            _listener = new TcpListener(IPAddress.Any, Port);
+            _listener = new TcpListener(IPAddress.Any, _port);
             _listener.Start();
         }
         catch (Exception e)
         {
-            TavernLogger.Error($"Could not listen for joins on port {Port}, so nobody can join this server: {e.Message}. Is another server or TavernLauncher using it?");
+            TavernLogger.Error($"Could not listen for joins on port {_port}, so nobody can join this server: {e.Message}. Is another server or TavernLauncher using it?");
             return;
         }
 
@@ -73,7 +74,7 @@ internal class AuthManager
             }
             catch (Exception e)
             {
-                TavernLogger.Error($"Could not accept a connection on port {Port}: {e.Message}");
+                TavernLogger.Error($"Could not accept a connection on port {_port}: {e.Message}");
                 await Task.Delay(1000);
                 continue;
             }
@@ -206,6 +207,8 @@ internal class AuthManager
         }
     }
 
+    private TavernServer Ports => _manager.TavernConfig.LastRead;
+
     private async Task WritePongResponse(Stream stream)
     {
         string modsHash = null;
@@ -226,7 +229,7 @@ internal class AuthManager
             settings.Name,
             !string.IsNullOrWhiteSpace(settings.PasswordHash),
             JoinRules.WhitelistOn(settings, _manager.UserConfig.LastRead),
-            1757, // TODO
+            Ports.Game, Ports.Web,
             modsHash, modsCount);
 
         await WriteResponse(stream, response);
@@ -351,7 +354,8 @@ internal class AuthManager
             changed = true;
         }
 
-        response = new AuthPayloads.AuthenticateOk(userData.UserId, settings.QuestScene, settings.TutorialScene);
+        response = new AuthPayloads.AuthenticateOk(userData.UserId, settings.QuestScene, settings.TutorialScene,
+            Ports.Game, Ports.Web);
         return changed;
     }
 

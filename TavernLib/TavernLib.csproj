@@ -237,6 +237,7 @@
     <Compile Include="Patches\MessageExpanderPatch.cs" />
     <Compile Include="Patches\SceneIndexPatches.cs" />
     <Compile Include="Patches\PlayerLimitPatch.cs" />
+    <Compile Include="Patches\ServerPortPatches.cs" />
     <Compile Include="Patches\ServerSettingsRolePatch.cs" />
     <Compile Include="Patches\StatNamePatch.cs" />
     <Compile Include="Services\IService.cs" />

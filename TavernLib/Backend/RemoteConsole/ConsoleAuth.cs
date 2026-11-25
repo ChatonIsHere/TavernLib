@@ -310,7 +310,7 @@ internal static class ConsoleAuth
         tokenId = id;
 
         // Port 1758 runs every command as the server itself, whatever token logged in.
-        if (path != LoginPath.WebSocket) return "named tokens work on port 1760 only";
+        if (path != LoginPath.WebSocket) return "named tokens work on the websocket console only";
 
         if (!ConsoleTokenStore.EnsureLoaded()) return "console_tokens.json can't be read";
         var token = ConsoleTokenStore.Find(id);
