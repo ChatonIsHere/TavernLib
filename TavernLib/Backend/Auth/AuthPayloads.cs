@@ -14,7 +14,7 @@ internal static class AuthPayloads
 
     // modsHash/modsCount are null when Mods/ couldn't be read: an empty hash would claim "no mods".
     public struct PingResponse(string serverName, bool passwordRequired, bool whitelistEnabled, int gamePort, int webPort,
-        string modsHash, int? modsCount)
+        int consolePort, string modsHash, int? modsCount)
     {
         [JsonProperty(PropertyName = "status")] private string Pong => "pong";
         [JsonProperty(PropertyName = "server_name")] private string ServerName { get; set; } = serverName;
@@ -22,6 +22,8 @@ internal static class AuthPayloads
         [JsonProperty(PropertyName = "whitelist_enabled")] private bool WhitelistEnabled { get; set; } = whitelistEnabled;
         [JsonProperty(PropertyName = "game_port")] private int GamePort { get; set; } = gamePort;
         [JsonProperty(PropertyName = "web_port")] private int WebPort { get; set; } = webPort;
+        // For the launcher's Remote Console, which finds the console through this ping.
+        [JsonProperty(PropertyName = "console_port")] private int ConsolePort { get; set; } = consolePort;
         [JsonProperty(PropertyName = "mods_hash")] private string ModsHash { get; set; } = modsHash;
         [JsonProperty(PropertyName = "mods_count")] private int? ModsCount { get; set; } = modsCount;
     }

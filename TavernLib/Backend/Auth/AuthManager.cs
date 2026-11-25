@@ -229,7 +229,7 @@ internal class AuthManager
             settings.Name,
             !string.IsNullOrWhiteSpace(settings.PasswordHash),
             JoinRules.WhitelistOn(settings, _manager.UserConfig.LastRead),
-            Ports.Game, Ports.Web,
+            Ports.Game, Ports.Web, Ports.Console,
             modsHash, modsCount);
 
         await WriteResponse(stream, response);
