@@ -190,6 +190,16 @@ public class TeenyPatches
                 return ServerPlayerConnectionHandlerOld.PlayerJoinResult.CreateDeniedResult("Token was for a different user");
             }
 
+            // The game's own check did this before TavernLib replaced it. The joining connection is
+            // already counted, so the limit is reached once the count goes past it. (A second
+            // connection for the same user is refused by the game after this.)
+            var limit = ServerHandler.Current?.PlayerLimit ?? 0;
+            if (limit > 0 && Socket.Current != null && Socket.Current.ConnectionCount > limit)
+            {
+                TavernLogger.Msg($"Join by {playerId} refused: the server is full ({limit} players)");
+                return ServerPlayerConnectionHandlerOld.PlayerJoinResult.CreateDeniedResult($"Reached player limit of: {limit}");
+            }
+
             var username = names[0].Value;
             var user = new UserInfoAndRole(new UserInfo(playerId, username), MemberStatusFromRoles(username));
             return ServerPlayerConnectionHandlerOld.PlayerJoinResult.CreateSuccessResult(user);

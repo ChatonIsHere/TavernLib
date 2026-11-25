@@ -15,7 +15,8 @@ public class ServerSettings
     // A password typed in by hand. Reading the file swaps it for password_hash.
     [JsonProperty(PropertyName = "password", NullValueHandling = NullValueHandling.Ignore)] public string Password { get; internal set; }
     [JsonProperty(PropertyName = "whitelist_enabled")] public bool WhitelistEnabled { get; private set; }
-    [JsonProperty(PropertyName = "enforce_ip_limit")] public bool EnforceIpLimit { get; private set; }
+    // On by default, as in the Windows launcher: at most 5 new names from one address.
+    [JsonProperty(PropertyName = "enforce_ip_limit")] public bool EnforceIpLimit { get; private set; } = true;
     [JsonProperty(PropertyName = "community_listed")] public bool CommunityListed { get; private set; }
     [JsonProperty(PropertyName = "max_players")] public int MaxPlayers { get; private set; } = DefaultMaxPlayers;
     [JsonProperty(PropertyName = "community_listing_token")] public string CommunityListingToken { get; internal set; } = "";
