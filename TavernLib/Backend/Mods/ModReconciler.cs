@@ -136,6 +136,16 @@ public static class ModReconciler
                     TavernLogger.Warn($"mod reconcile: couldn't disable '{id}' ({e.Message}); it stays enabled.");
                 }
             }
+
+            // The host's choice, so only a warning. Needs the index, which an empty list never fetched.
+            if (_index == null) return;
+            var running = keepIds.Where(RunsHere).ToDictionary(id => id, id => _installed[id].Record.Version);
+            foreach (var inc in _index.Clashes(running))
+            {
+                var ids = inc.Below.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+                TavernLogger.Warn($"mod reconcile: '{ids[0]}' and '{ids[1]}' don't work together ({inc.Note}); "
+                                  + "both are in the configured mods list, so both stay enabled.");
+            }
         }
 
         // A modlist entry for a mod its source has replaced means the replacement, at its latest, as the
@@ -143,10 +153,24 @@ public static class ModReconciler
         // Needs the index; when it can't be fetched the entry stands as written.
         private (string Id, string PinnedVersion) Replace((string Id, string PinnedVersion) entry)
         {
-            if (ModIndex.ReplacementOfUnlisted(Index, entry.Id) is not { } rep) return entry;
+            if (ModIndex.ReplacementOfUnlisted(Index, entry.Id) is not { } rep) return Unwithdraw(entry);
             TavernLogger.Msg($"mod reconcile: '{entry.Id}' has been replaced by '{rep.By}'"
                              + (string.IsNullOrEmpty(rep.Note) ? "" : $" ({rep.Note})") + $"; using '{rep.By}' instead.");
             return (rep.By, null);
+        }
+
+        // An entry for an exact withdrawn version means that major's latest, else the mod's latest. The index
+        // never lists a withdrawn version, so the latest never is one.
+        private (string Id, string PinnedVersion) Unwithdraw((string Id, string PinnedVersion) entry)
+        {
+            if (entry.PinnedVersion == null || Index.WithdrawalOf(entry.Id, entry.PinnedVersion) is not { } gone)
+                return entry;
+            var major = ModVersion.TryParse(entry.PinnedVersion, out var pinned) ? pinned.Major : (int?)null;
+            var latest = Index.Where(s => s.Id == entry.Id && s.Major == major).Select(s => s.Highest)
+                .OrderByDescending(v => v).Select(v => v.ToString()).FirstOrDefault();
+            TavernLogger.Warn($"mod reconcile: '{entry.Id}' {entry.PinnedVersion} has been withdrawn ({gone.Reason}); "
+                              + $"using {(latest ?? "its latest")} instead.");
+            return (entry.Id, latest);
         }
 
         // Off the records, with no network, so a repo outage never disables a dependency. An id with no server

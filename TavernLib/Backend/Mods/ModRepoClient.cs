@@ -17,16 +17,64 @@ public sealed class ModReplacement(string oldId, string by, string note, string 
     public string SourceRepo { get; } = sourceRepo;
 }
 
-// FetchIndexes' summaries, with every source's replacements. Twin of repos.py's ModIndex.
+// One entry of a source's `incompatible`: two mods that don't work together while each is below its
+// `below` (null: at every version). Twin of repos.py's Incompatibility.
+public sealed class ModIncompatibility(Dictionary<string, ModVersion?> below, string note, string sourceRepo)
+{
+    public Dictionary<string, ModVersion?> Below { get; } = below;
+    public string Note { get; } = note;
+    public string SourceRepo { get; } = sourceRepo;
+}
+
+// One entry of a source's `withdrawn`: a version nothing should install. Twin of repos.py's Withdrawal.
+public sealed class ModWithdrawal(string modId, string version, string reason, string sourceRepo)
+{
+    public string ModId { get; } = modId;
+    public string Version { get; } = version;
+    public string Reason { get; } = reason;
+    public string SourceRepo { get; } = sourceRepo;
+}
+
+// FetchIndexes' summaries, with every source's replacements, incompatible pairs and withdrawn versions.
+// Twin of repos.py's ModIndex.
 public class ModIndex : List<ModSummary>
 {
     public List<ModReplacement> Replaced { get; } = [];
+    public List<ModIncompatibility> Incompatible { get; } = [];
+    public List<ModWithdrawal> Withdrawn { get; } = [];
 
     public ModIndex() { }
 
-    public ModIndex(IEnumerable<ModSummary> summaries, IEnumerable<ModReplacement> replaced) : base(summaries)
+    public ModIndex(IEnumerable<ModSummary> summaries, IEnumerable<ModReplacement> replaced,
+        IEnumerable<ModIncompatibility> incompatible = null, IEnumerable<ModWithdrawal> withdrawn = null) : base(summaries)
     {
         Replaced.AddRange(replaced);
+        Incompatible.AddRange(incompatible ?? []);
+        Withdrawn.AddRange(withdrawn ?? []);
+    }
+
+    // Twin of repos.py's withdrawal_for without a source: the default source's entry wins, then the first.
+    public ModWithdrawal WithdrawalOf(string modId, string version)
+    {
+        var ws = Withdrawn.Where(w => w.ModId == modId && w.Version == version).ToList();
+        return ws.FirstOrDefault(w => IsDefaultRepo(w.SourceRepo)) ?? ws.FirstOrDefault();
+    }
+
+    // Twin of repos.py's clashes: the pairs that apply among versions (id -> version), each once. An
+    // unreadable version counts as below any bound.
+    public List<ModIncompatibility> Clashes(IReadOnlyDictionary<string, string> versions)
+    {
+        var seen = new HashSet<string>();
+        var found = new List<ModIncompatibility>();
+        foreach (var inc in Incompatible)
+        {
+            var key = string.Join("\n", inc.Below.Keys.OrderBy(k => k, StringComparer.Ordinal));
+            if (inc.Below.All(side => versions.TryGetValue(side.Key, out var v)
+                    && (side.Value is not { } first || !ModVersion.TryParse(v, out var have) || have < first))
+                && seen.Add(key))
+                found.Add(inc);
+        }
+        return found;
     }
 
     // Twin of repos.py's replacement_of_unlisted: for an id named without a source (a dependency, a modlist
@@ -86,7 +134,8 @@ public class ModRepoClient(NativeHttp http, List<string> repos, DateTime? deadli
         }
     }
 
-    private (List<ModSummary> Rows, List<ModReplacement> Replaced) FetchRepoIndex(string baseUrl)
+    private (List<ModSummary> Rows, List<ModReplacement> Replaced, List<ModIncompatibility> Incompatible,
+        List<ModWithdrawal> Withdrawn) FetchRepoIndex(string baseUrl)
     {
         baseUrl = NormalizeUrl(baseUrl);
         JObject index;
@@ -107,13 +156,46 @@ public class ModRepoClient(NativeHttp http, List<string> repos, DateTime? deadli
             foreach (var major in (mod.Value as JObject)?.Properties() ?? [])
                 if (major.Value is JObject entry && ModSummary.FromJson(entry, mod.Name, baseUrl) is { } summary)
                     rows.Add(summary);
-        return (rows, ReplacementsFrom(index, baseUrl));
+        return (rows, ReplacementsFrom(index, baseUrl), IncompatibilitiesFrom(index, baseUrl), WithdrawalsFrom(index, baseUrl));
 
-        (List<ModSummary>, List<ModReplacement>) Skip(string reason)
+        (List<ModSummary>, List<ModReplacement>, List<ModIncompatibility>, List<ModWithdrawal>) Skip(string reason)
         {
             TavernLogger.Warn($"skipping repo {baseUrl}: {reason}");
-            return ([], []);
+            return ([], [], [], []);
         }
+    }
+
+    // Twin of repos.py's _incompatibilities_from: an entry needs exactly two different ids, each mapping to an
+    // object, and a string note. A "below" that isn't a version counts as absent: every version clashes.
+    public static List<ModIncompatibility> IncompatibilitiesFrom(JObject index, string baseUrl)
+    {
+        var found = new List<ModIncompatibility>();
+        foreach (var token in (index["incompatible"] as JArray) ?? [])
+        {
+            if (token is not JObject entry || entry["mods"] is not JObject mods || entry["note"]?.Type != JTokenType.String)
+                continue;
+            var sides = mods.Properties().ToList();
+            if (sides.Count != 2 || string.Equals(sides[0].Name, sides[1].Name, StringComparison.OrdinalIgnoreCase)
+                || sides.Any(s => s.Value is not JObject))
+                continue;
+            var below = new Dictionary<string, ModVersion?>();
+            foreach (var side in sides)
+                below[side.Name] = side.Value["below"]?.Type == JTokenType.String
+                                   && ModVersion.TryParse((string)side.Value["below"], out var v) ? v : null;
+            found.Add(new ModIncompatibility(below, (string)entry["note"], baseUrl));
+        }
+        return found;
+    }
+
+    // Twin of repos.py's _withdrawals_from: {id: {version: reason}}, string reasons only.
+    public static List<ModWithdrawal> WithdrawalsFrom(JObject index, string baseUrl)
+    {
+        var found = new List<ModWithdrawal>();
+        foreach (var mod in (index["withdrawn"] as JObject)?.Properties() ?? [])
+            foreach (var version in (mod.Value as JObject)?.Properties() ?? [])
+                if (version.Value.Type == JTokenType.String)
+                    found.Add(new ModWithdrawal(mod.Name, version.Name, (string)version.Value, baseUrl));
+        return found;
     }
 
     // Twin of repos.py's _replacements_from: entries that aren't an object with a string "by" naming another id are skipped.
@@ -132,17 +214,21 @@ public class ModRepoClient(NativeHttp http, List<string> repos, DateTime? deadli
     {
         var merged = new Dictionary<(string, int), (ModSummary Summary, bool FromDefault)>();
         var replaced = new List<ModReplacement>();
+        var incompatible = new List<ModIncompatibility>();
+        var withdrawn = new List<ModWithdrawal>();
         foreach (var baseUrl in repos)
         {
             var fromDefault = IsDefaultRepo(baseUrl);
-            var (rows, reps) = FetchRepoIndex(baseUrl);
+            var (rows, reps, incs, gone) = FetchRepoIndex(baseUrl);
             replaced.AddRange(reps);
+            incompatible.AddRange(incs);
+            withdrawn.AddRange(gone);
             foreach (var s in rows)
                 if (!merged.TryGetValue((s.Id, s.Major), out var cur) || (fromDefault && !cur.FromDefault)
                     || (fromDefault == cur.FromDefault && s.Highest > cur.Summary.Highest))
                     merged[(s.Id, s.Major)] = (s, fromDefault);
         }
-        return new ModIndex(merged.Values.Select(v => v.Summary), replaced);
+        return new ModIndex(merged.Values.Select(v => v.Summary), replaced, incompatible, withdrawn);
     }
 
     // Twin of resolve.py's _fetch_manifest_leaf. A preferRepo that isn't trusted is ignored.
